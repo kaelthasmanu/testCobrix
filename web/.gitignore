@@ -1,0 +1,4 @@
+dist
+*.local
+.env
+!.env.example
