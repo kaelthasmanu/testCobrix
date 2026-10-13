@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import assignment from '../../../docs/ENUNCIADO.md?raw'
+import assignment from '../../../api/docs/ENUNCIADO.md?raw'
 
 export default function AssignmentPage() {
 	useEffect(() => {
