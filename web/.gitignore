@@ -1,4 +1,5 @@
 dist
+*.tsbuildinfo
 *.local
 .env
 !.env.example
