@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { authenticatedRequest } from '../auth/api'
 import {
 	DOCUMENT_TYPES,
 	IMPORTABLE_CONTRACT_STATUSES,
@@ -59,7 +60,7 @@ export default function ConfigurationPage() {
 		updateSettings({ excludedDocumentTypes: next })
 	}
 
-	function handleSettingsSubmit(event: FormEvent<HTMLFormElement>) {
+	async function handleSettingsSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault()
 		setError('')
 		setSuccess('')
@@ -69,6 +70,7 @@ export default function ConfigurationPage() {
 			return
 		}
 		try {
+			if (session) await authenticatedRequest('/settings', session.accessToken, { method: 'PATCH', body: JSON.stringify(settings) })
 			saveSettings(settings)
 			setSuccess('Configuración guardada correctamente.')
 		} catch (cause) {

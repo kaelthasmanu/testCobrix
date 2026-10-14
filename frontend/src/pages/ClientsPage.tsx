@@ -12,8 +12,8 @@ import {
 	type SortingState,
 } from '@tanstack/react-table'
 import { useAuth } from '../auth/AuthContext'
+import { authenticatedGet } from '../auth/api'
 import type { Client } from '../interfaces/ClientsPage.interfaces'
-import { loadInvoices } from '../sync/storage'
 
 const columnHelper = createColumnHelper<Client>()
 const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
@@ -26,54 +26,6 @@ function formatDueDate(value: string | null): string {
 
 function clientType(document: string): Client['type'] {
 	return /^[JG]/i.test(document.trim()) ? 'Jurídico' : 'Natural'
-}
-
-function loadClients(): Client[] {
-	const grouped = new Map<string, {
-		name: string
-		document: string
-		contracts: Set<number>
-		openInvoices: number
-		paidInvoices: Set<number>
-		debt: number
-		oldestDue: string | null
-	}>()
-
-	for (const invoice of loadInvoices()) {
-		const document = invoice.customerDocument
-		const current = grouped.get(document) ?? {
-			name: invoice.customerName,
-			document,
-			contracts: new Set<number>(),
-			openInvoices: 0,
-			paidInvoices: new Set<number>(),
-			debt: 0,
-			oldestDue: null,
-		}
-		current.contracts.add(invoice.contractId)
-		if (invoice.status === 'open') {
-			current.openInvoices += 1
-			current.debt += invoice.balance
-			if (!current.oldestDue || invoice.dueDate < current.oldestDue) current.oldestDue = invoice.dueDate
-		} else {
-			current.paidInvoices.add(Number(invoice.id))
-		}
-		grouped.set(document, current)
-	}
-
-	return [...grouped.values()]
-		.map((client) => ({
-			id: client.document,
-			name: client.name,
-			document: client.document,
-			type: clientType(client.document),
-			contracts: client.contracts.size,
-			openInvoices: client.openInvoices,
-			paidInvoices: client.paidInvoices.size,
-			debt: client.debt,
-			oldestDue: client.oldestDue,
-		}))
-		.sort((left, right) => left.name.localeCompare(right.name, 'es'))
 }
 
 const columns = [
@@ -113,13 +65,27 @@ export default function ClientsPage() {
 		let cancelled = false
 		setIsLoading(true)
 		setError('')
-		try {
-			setClients(loadClients())
-		} catch (cause) {
-			if (!cancelled) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los clientes.')
-		} finally {
-			if (!cancelled) setIsLoading(false)
-		}
+		void authenticatedGet<Array<Record<string, unknown>>>('/clients', session.accessToken)
+			.then((rows) => {
+				if (cancelled) return
+				setClients(rows.map((row) => ({
+					id: String(row.document),
+					name: String(row.name),
+					document: String(row.document),
+					type: clientType(String(row.document)),
+					contracts: Number(row.contracts ?? 0),
+					openInvoices: Number(row.openInvoices ?? 0),
+					paidInvoices: Number(row.paidInvoices ?? 0),
+					debt: Number(row.debt ?? 0),
+					oldestDue: typeof row.oldestDueDate === 'string' ? row.oldestDueDate : null,
+				})))
+			})
+			.catch((cause: unknown) => {
+				if (!cancelled) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los clientes.')
+			})
+			.finally(() => {
+				if (!cancelled) setIsLoading(false)
+			})
 		return () => {
 			cancelled = true
 		}
