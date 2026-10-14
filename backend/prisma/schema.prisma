@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AppSetting {
+  key   String @id
+  value String
+}
+
+model ProviderAuth {
+  id              Int    @id
+  username        String
+  encryptedPassword String
+  accessToken     String?
+  tokenExpiresAt  String?
+}
+
+model Client {
+  id        Int      @id @default(autoincrement())
+  document  String   @unique
+  name      String
+  email     String?
+  phone     String?
+  origin    String
+  createdAt String
+  contracts Contract[]
+  invoices  Invoice[]
+  events    CustomerEvent[]
+}
+
+model Contract {
+  id         Int      @id @default(autoincrement())
+  providerId Int      @unique
+  clientId   Int
+  status     String
+  plan       String?
+  price      Float    @default(0)
+  branch     String?
+  updatedAt  String
+  client     Client   @relation(fields: [clientId], references: [id])
+  invoices   Invoice[]
+}
+
+model Invoice {
+  id               Int      @id @default(autoincrement())
+  externalId       String   @unique
+  contractId       Int
+  clientId         Int
+  customerDocument String
+  customerName     String
+  period           String
+  dueDate          String
+  cutoffDate       String
+  amount           Float
+  balance          Float
+  status           String
+  importedAt       String
+  paidAt           String?
+  contract         Contract @relation(fields: [contractId], references: [id])
+  client           Client   @relation(fields: [clientId], references: [id])
+  events           CustomerEvent[]
+}
+
+model SyncRun {
+  id         String @id
+  type       String
+  simulation Boolean
+  status     String
+  startedAt  String
+  finishedAt String
+  summary    String
+  counters   String
+  error      String?
+  items      SyncRunItem[]
+}
+
+model SyncRunItem {
+  id               Int      @id @default(autoincrement())
+  runId            String
+  externalId       String?
+  contractId       Int?
+  customerDocument String?
+  period           String?
+  result           String
+  reason           String
+  amount           Float?
+  run              SyncRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model CustomerEvent {
+  id          Int      @id @default(autoincrement())
+  clientId    Int
+  type        String
+  occurredAt  String
+  description String
+  invoiceId   Int?
+  client      Client   @relation(fields: [clientId], references: [id])
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id])
+}
