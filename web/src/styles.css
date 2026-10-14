@@ -92,6 +92,122 @@ h2 {
 	font-size: 16px;
 }
 
+th,
+td {
+	border-bottom: 1px solid var(--line);
+	padding: 9px 12px;
+	text-align: left;
+	vertical-align: top;
+}
+
+th {
+	background: var(--sunken);
+	color: var(--muted);
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+tr:last-child td {
+	border-bottom: 0;
+}
+
+label.field {
+	display: grid;
+	gap: 5px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+label.field small {
+	color: var(--muted);
+	font-size: 12px;
+	font-weight: 400;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+	width: 100%;
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--surface);
+	color: var(--fg);
+	font: inherit;
+	font-weight: 400;
+	padding: 7px 10px;
+	outline: none;
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+fieldset {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	margin: 0;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 10px 14px;
+}
+
+fieldset legend {
+	padding: 0 4px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+fieldset label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13.5px;
+}
+
+dl.facts {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: 6px 16px;
+	margin: 0;
+}
+
+dl.facts dt {
+	color: var(--muted);
+}
+
+dl.facts dd {
+	margin: 0;
+}
+
+.btn {
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--surface);
+	color: var(--fg);
+	cursor: pointer;
+	font: 600 13.5px inherit;
+	padding: 7px 14px;
+}
+
+.btn:hover {
+	background: var(--sunken);
+}
+
+.btn.primary {
+	border-color: var(--primary);
+	background: var(--primary);
+	color: var(--primary-fg);
+}
+
+.btn:disabled {
+	cursor: wait;
+	opacity: 0.6;
+}
+
 .head {
 	display: flex;
 	flex-wrap: wrap;
