@@ -1,5 +1,6 @@
 import { authenticatedGet } from '../auth/api'
 import type { PanelSettings } from '../config/settings'
+import { evaluatePayment, isCurrencyCoherent, isWithinImportWindow, monthFromDetail, normalizeDocument } from './rules'
 import { loadInvoices, saveInvoices, type ItemResult, type RunItem, type StoredInvoice } from './storage'
 
 interface ContractIdsResponse {
@@ -48,21 +49,6 @@ function isPending(value: unknown): value is PendingInstallment {
 	return isRecord(value)
 }
 
-function monthFromDetail(detail: readonly string[] | undefined): string | null {
-	const value = detail?.find((item) => /\d{4}-\d{2}/.test(item))
-	const match = value?.match(/\d{4}-\d{2}/)
-	return match?.[0] ?? null
-}
-
-function normalizeDocument(value: string | undefined): string | null {
-	if (!value) return null
-	const normalized = value.toUpperCase().replaceAll(/[\s-]/g, '')
-	const match = normalized.match(/^([VEJGP]?)(\d{6,12})$/)
-	if (!match) return null
-	const digits = match[2].replace(/^0+(?=\d)/, '')
-	return `${match[1]}${digits}`
-}
-
 function firstOfMonth(period: string): string {
 	return `${period}-01`
 }
@@ -71,18 +57,6 @@ function addDays(date: string, days: number): string {
 	const result = new Date(`${date}T00:00:00Z`)
 	result.setUTCDate(result.getUTCDate() + days)
 	return result.toISOString().slice(0, 10)
-}
-
-function monthAge(period: string): number {
-	const [year, month] = period.split('-').map(Number)
-	const today = new Intl.DateTimeFormat('en-CA', {
-		timeZone: 'America/Caracas',
-		year: 'numeric',
-		month: '2-digit',
-	}).formatToParts(new Date())
-	const currentYear = Number(today.find((part) => part.type === 'year')?.value)
-	const currentMonth = Number(today.find((part) => part.type === 'month')?.value)
-	return (currentYear - year) * 12 + currentMonth - month
 }
 
 function isExcludedDocument(document: string, excluded: readonly string[]): boolean {
@@ -142,12 +116,7 @@ export async function runImport(accessToken: string, settings: PanelSettings, si
 			for (const installment of contractRows) items.push(baseItem(installment, 'excluded_status', `Estado ${installment.estado ?? 'desconocido'} no importable`))
 			continue
 		}
-		const hasIncoherentCurrency = contractRows.some((installment) => {
-			if (Number(installment.deuda) < 0.01) return false
-			const price = Number(installment.precio_servicio)
-			return installment.moneda_sigla !== 'USD' || (price > 0 && Number(installment.deuda) < price * 0.01)
-		})
-		if (hasIncoherentCurrency) {
+		if (!isCurrencyCoherent(contractRows)) {
 			for (const installment of contractRows) items.push(baseItem(installment, 'incoherent_currency', 'El contrato reporta una moneda o monto incoherente con el plan'))
 			continue
 		}
@@ -173,7 +142,7 @@ export async function runImport(accessToken: string, settings: PanelSettings, si
 				items.push(baseItem(installment, 'outside_window', 'No se pudo obtener el periodo de la cuota'))
 				continue
 			}
-			if (settings.importWindow !== 'none' && monthAge(period) > Number(settings.importWindow)) {
+			if (!isWithinImportWindow(period, settings, new Date())) {
 				items.push(baseItem(installment, 'outside_window', 'La cuota está fuera de la ventana configurada'))
 				continue
 			}
@@ -236,30 +205,15 @@ export async function runPaymentUpdate(accessToken: string, simulation: boolean)
 	let updatedInvoices = 0
 	for (const invoice of invoices.filter((item) => item.status === 'open')) {
 		const response = await authenticatedGet<PaymentResponse>(`/isp/pago_informacion?id_contrato=${invoice.contractId}&tipo_busqueda=CUOTA&fecha_inicio=2020-01-01&fecha_fin=2099-12-31`, accessToken)
-		const matches = (response.data ?? []).filter((row) => row.detalle_pago?.id_cuota === Number(invoice.id))
-		const hasContradictoryRows = matches.some((row) => row.detalle_pago?.id_contrato !== undefined && row.detalle_pago.id_contrato !== invoice.contractId)
-		const firstDetail = matches[0]?.detalle_pago
-		const rowsAgree = firstDetail !== undefined && matches.every((row) => {
-			const detail = row.detalle_pago
-			return detail
-				&& Number(detail.saldo_cuota) === Number(firstDetail.saldo_cuota)
-				&& Number(detail.valor_pago) === Number(firstDetail.valor_pago)
-				&& Number(detail.tarifa) === Number(firstDetail.tarifa)
-		})
-		const fullyPaid = matches.length > 0 && !hasContradictoryRows && rowsAgree
-			&& Number(firstDetail.saldo_cuota) === 0 && Number(firstDetail.valor_pago) > 0
-		const partial = matches.length > 0 && !hasContradictoryRows && rowsAgree
-			&& Number(firstDetail.valor_pago) > 0
-			&& Number(firstDetail.saldo_cuota) > 0
-			&& Number(firstDetail.saldo_cuota) < invoice.balance
-		if (fullyPaid) {
+		const paymentResult = evaluatePayment(response.data ?? [], invoice.contractId, invoice.id, invoice.balance)
+		if (paymentResult === 'paid') {
 			if (!simulation) {
 				const index = invoices.findIndex((item) => item.id === invoice.id)
 				if (index >= 0) invoices[index] = { ...invoice, balance: 0, status: 'paid', paidAt: new Date().toISOString() }
 			}
 			updatedInvoices += 1
 			items.push({ id: invoice.id, contractId: invoice.contractId, customerDocument: invoice.customerDocument, period: invoice.period, result: 'paid', reason: simulation ? 'Se marcaría pagada; simulación sin escritura' : 'Factura marcada como pagada', amount: invoice.amount })
-		} else if (partial) {
+		} else if (paymentResult === 'partial_payment') {
 			items.push({ id: invoice.id, contractId: invoice.contractId, customerDocument: invoice.customerDocument, period: invoice.period, result: 'partial_payment', reason: 'Existe un abono, pero la cuota conserva saldo', amount: invoice.amount })
 		} else {
 			items.push({ id: invoice.id, contractId: invoice.contractId, customerDocument: invoice.customerDocument, period: invoice.period, result: 'no_evidence', reason: 'No existe evidencia de pago completo', amount: invoice.amount })
