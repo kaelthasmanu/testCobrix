@@ -145,6 +145,7 @@ export default function ConfigurationPage() {
 				<form className="grid gap-5 p-4" onSubmit={handleSettingsSubmit}>
 					<fieldset>
 						<legend>Estados de contrato que se importan</legend>
+						<small className="basis-full text-muted">Por defecto se importan ACTIVO y CORTADO. Marca otros estados solo si deseas incluirlos.</small>
 						{IMPORTABLE_CONTRACT_STATUSES.map((status) => (
 							<label key={status}><input checked={settings.importableStatuses.includes(status)} onChange={() => toggleStatus(status)} type="checkbox" /> {status}</label>
 						))}

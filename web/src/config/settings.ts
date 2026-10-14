@@ -1,4 +1,4 @@
-export const IMPORTABLE_CONTRACT_STATUSES = ['ACTIVO', 'CORTADO'] as const
+export const IMPORTABLE_CONTRACT_STATUSES = ['ACTIVO', 'CORTADO', 'CORTESIA', 'RETIRADO', 'RECHAZADO', 'ANULADO'] as const
 export const DOCUMENT_TYPES = ['V', 'E', 'J', 'G', 'P'] as const
 export const IMPORT_WINDOWS = ['none', '3', '6', '9', '12'] as const
 
