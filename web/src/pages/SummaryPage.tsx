@@ -79,7 +79,10 @@ export default function SummaryPage() {
 
 			<div className="grid gap-5 lg:grid-cols-2">
 				<section className="rounded-[10px] border border-line bg-surface">
-					<header className="border-b border-line px-4 py-3.5"><h2>Proveedor configurado</h2></header>
+					<header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3.5">
+						<h2>Proveedor configurado</h2>
+						<Link className="text-sm font-medium hover:no-underline hover:underline" to="/configuracion">Editar configuración</Link>
+					</header>
 					<div className="grid gap-3 p-4">
 						<dl className="facts">
 							<dt>URL de la API</dt><dd className="mono break-all">{apiUrl}</dd>
