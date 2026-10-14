@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { login as requestLogin, type AuthSession, type LoginRequest } from './api'
+import { authenticate as requestAuthentication, type AuthCredentials, type AuthSession } from './api'
 
 interface AuthContextValue {
 	readonly session: AuthSession | null
-	readonly login: (request: LoginRequest) => Promise<void>
-	readonly logout: () => void
+	readonly authenticate: (credentials: AuthCredentials) => Promise<void>
+	readonly disconnect: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -58,8 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		return () => window.clearTimeout(timeout)
 	}, [session])
 
-	const login = useCallback(async (request: LoginRequest) => {
-		const authenticatedSession = await requestLogin(request)
+	const authenticate = useCallback(async (credentials: AuthCredentials) => {
+		const authenticatedSession = await requestAuthentication(credentials)
 		try {
 			window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(authenticatedSession))
 		} catch (error) {
@@ -68,13 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		setSession(authenticatedSession)
 	}, [])
 
-	const logout = useCallback(() => {
+	const disconnect = useCallback(() => {
 		window.sessionStorage.removeItem(SESSION_STORAGE_KEY)
 		setSession(null)
 	}, [])
 
 	return (
-		<AuthContext.Provider value={{ session, login, logout }}>
+		<AuthContext.Provider value={{ session, authenticate, disconnect }}>
 			{children}
 		</AuthContext.Provider>
 	)
