@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { loadSettings } from '../config/settings'
@@ -28,6 +28,18 @@ const runLabels: Record<RunType, string> = {
 
 const dateFormatter = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium', timeStyle: 'short' })
 const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
+const counterLabels: Record<string, string> = {
+	contractsScanned: 'Contratos recorridos',
+	installmentsEvaluated: 'Cuotas evaluadas',
+	customersCreated: 'Clientes creados',
+	customersExisting: 'Clientes existentes',
+	newInvoices: 'Facturas nuevas',
+	newAmount: 'Monto nuevo',
+	invoicesEvaluated: 'Facturas evaluadas',
+	paidInvoices: 'Facturas pagadas',
+	partialPayments: 'Abonos parciales',
+	noEvidence: 'Sin evidencia',
+}
 
 function formatDate(value: string): string {
 	return dateFormatter.format(new Date(value))
@@ -35,8 +47,7 @@ function formatDate(value: string): string {
 
 function summaryCounters(run: SyncRun): string {
 	return Object.entries(run.counters)
-		.filter(([key]) => key !== 'newAmount')
-		.map(([key, value]) => `${key}: ${value}`)
+		.map(([key, value]) => `${counterLabels[key] ?? key}: ${key === 'newAmount' ? money.format(value) : value}`)
 		.join(' · ')
 }
 
@@ -53,6 +64,10 @@ export default function SynchronizationPage() {
 
 	async function execute(type: RunType, simulation: boolean) {
 		if (!session) return
+		if (!simulation) {
+			const action = type === 'import' ? 'importar clientes y facturas' : 'actualizar las facturas pagadas'
+			if (!window.confirm(`¿Confirmas que deseas ${action}? Esta acción escribirá cambios en Cobrix.`)) return
+		}
 		const startedAt = new Date().toISOString()
 		const id = `${type}-${startedAt}`
 		setRunning(id)
@@ -177,6 +192,19 @@ function SyncActionCard({ title, description, running, onRun }: {
 }
 
 function RunRow({ run, expanded, onToggle }: { readonly run: SyncRun; readonly expanded: boolean; readonly onToggle: () => void }) {
+	const [resultFilter, setResultFilter] = useState<RunItem['result'] | 'all'>('all')
+	const [page, setPage] = useState(0)
+	const pageSize = 10
+	const filteredItems = useMemo(
+		() => resultFilter === 'all' ? run.items : run.items.filter((item) => item.result === resultFilter),
+		[resultFilter, run.items],
+	)
+	const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize))
+	const pageItems = filteredItems.slice(page * pageSize, (page + 1) * pageSize)
+	const updateFilter = (value: RunItem['result'] | 'all') => {
+		setResultFilter(value)
+		setPage(0)
+	}
 	return (
 		<>
 			<tr>
@@ -195,19 +223,42 @@ function RunRow({ run, expanded, onToggle }: { readonly run: SyncRun; readonly e
 					<td colSpan={6}>
 						<div className="grid gap-3">
 							{run.error && <p className="flash bad m-0">{run.error}</p>}
-							{run.items.length === 0 && !run.error && <p className="m-0 text-muted">La corrida no produjo filas de detalle.</p>}
 							{run.items.length > 0 && (
+								<div className="flex flex-wrap items-center justify-between gap-3">
+									<label className="flex items-center gap-2 text-sm text-muted" htmlFor={`result-filter-${run.id}`}>
+										Filtrar resultado
+										<select className="rounded-md border border-line bg-surface px-2 py-1.5 text-fg" id={`result-filter-${run.id}`} onChange={(event) => updateFilter(event.target.value as RunItem['result'] | 'all')} value={resultFilter}>
+											<option value="all">Todos ({run.items.length})</option>
+											{Object.entries(resultLabels).filter(([result]) => run.items.some((item) => item.result === result)).map(([result, label]) => (
+												<option key={result} value={result}>{label}</option>
+											))}
+										</select>
+									</label>
+									<span className="text-xs text-muted">{filteredItems.length} resultado{filteredItems.length === 1 ? '' : 's'}</span>
+								</div>
+							)}
+							{run.items.length === 0 && !run.error && <p className="m-0 text-muted">La corrida no produjo filas de detalle.</p>}
+							{pageItems.length > 0 && (
 								<div className="overflow-x-auto">
 									<table className="w-full min-w-[720px] border-collapse">
 										<thead><tr><th>Cuota</th><th>Contrato</th><th>Cliente</th><th>Periodo</th><th>Resultado</th><th>Monto</th><th>Motivo</th></tr></thead>
 										<tbody>
-											{run.items.map((item) => (
+											{pageItems.map((item) => (
 												<tr key={`${run.id}-${item.id}`}>
 													<td className="mono">{item.id}</td><td>{item.contractId ?? '—'}</td><td>{item.customerDocument ?? '—'}</td><td>{item.period ?? '—'}</td><td><span className="pill info">{resultLabels[item.result]}</span></td><td>{item.amount === undefined ? '—' : money.format(item.amount)}</td><td>{item.reason}</td>
 												</tr>
 											))}
 										</tbody>
 									</table>
+								</div>
+							)}
+							{filteredItems.length > pageSize && (
+								<div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-sm">
+									<span className="text-muted">Página {page + 1} de {pageCount}</span>
+									<div className="flex gap-2">
+										<button className="btn" disabled={page === 0} onClick={() => setPage((current) => current - 1)} type="button">Anterior</button>
+										<button className="btn" disabled={page >= pageCount - 1} onClick={() => setPage((current) => current + 1)} type="button">Siguiente</button>
+									</div>
 								</div>
 							)}
 						</div>

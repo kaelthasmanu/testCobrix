@@ -87,6 +87,7 @@ export async function runImport(accessToken: string, settings: PanelSettings, si
 	const response = await authenticatedGet<ContractIdsResponse>('/isp/lista_ids_contratos', accessToken)
 	const ids = response.data ?? []
 	const invoices = loadInvoices()
+	const existingCustomerDocuments = new Set(invoices.map((invoice) => invoice.customerDocument))
 	const knownIds = new Set(invoices.map((invoice) => invoice.id))
 	const items: RunItem[] = []
 	const candidates: Array<{ installment: PendingInstallment; document: string; period: string }> = []
@@ -195,7 +196,16 @@ export async function runImport(accessToken: string, settings: PanelSettings, si
 		items.push(baseItem(installment, 'imported', simulation ? 'Se importaría; simulación sin escritura' : 'Factura importada'))
 	}
 	if (!simulation) saveInvoices(invoices)
-	const counters = { ...countResults(items), newInvoices: imported, newAmount: Number(totalAmount.toFixed(2)) }
+	const candidateCustomers = new Set(candidates.map((candidate) => candidate.document))
+	const counters = {
+		...countResults(items),
+		contractsScanned: ids.length,
+		installmentsEvaluated: items.length,
+		customersCreated: [...candidateCustomers].filter((document) => !existingCustomerDocuments.has(document)).length,
+		customersExisting: [...candidateCustomers].filter((document) => existingCustomerDocuments.has(document)).length,
+		newInvoices: imported,
+		newAmount: Number(totalAmount.toFixed(2)),
+	}
 	return { invoices, items, counters, summary: `${imported} factura${imported === 1 ? '' : 's'} ${simulation ? 'se importarían' : 'importadas'} por USD ${totalAmount.toFixed(2)}` }
 }
 
@@ -220,6 +230,12 @@ export async function runPaymentUpdate(accessToken: string, simulation: boolean)
 		}
 	}
 	if (!simulation) saveInvoices(invoices)
-	const counters = { ...countResults(items), paidInvoices: updatedInvoices }
+	const counters = {
+		...countResults(items),
+		invoicesEvaluated: items.length,
+		paidInvoices: updatedInvoices,
+		partialPayments: items.filter((item) => item.result === 'partial_payment').length,
+		noEvidence: items.filter((item) => item.result === 'no_evidence').length,
+	}
 	return { invoices, items, counters, summary: `${updatedInvoices} factura${updatedInvoices === 1 ? '' : 's'} ${simulation ? 'se marcarían como pagadas' : 'marcadas como pagadas'}` }
 }
