@@ -21,7 +21,9 @@ interface PendingInstallment {
 interface PaymentRow {
 	readonly id_factura?: number
 	readonly detalle_pago?: {
+		readonly id_contrato?: number
 		readonly id_cuota?: number
+		readonly tarifa?: number
 		readonly valor_pago?: number
 		readonly saldo_cuota?: number
 	}
@@ -73,8 +75,14 @@ function addDays(date: string, days: number): string {
 
 function monthAge(period: string): number {
 	const [year, month] = period.split('-').map(Number)
-	const now = new Date()
-	return (now.getUTCFullYear() - year) * 12 + now.getUTCMonth() - (month - 1)
+	const today = new Intl.DateTimeFormat('en-CA', {
+		timeZone: 'America/Caracas',
+		year: 'numeric',
+		month: '2-digit',
+	}).formatToParts(new Date())
+	const currentYear = Number(today.find((part) => part.type === 'year')?.value)
+	const currentMonth = Number(today.find((part) => part.type === 'month')?.value)
+	return (currentYear - year) * 12 + currentMonth - month
 }
 
 function isExcludedDocument(document: string, excluded: readonly string[]): boolean {
@@ -105,20 +113,52 @@ export async function runImport(accessToken: string, settings: PanelSettings, si
 	const response = await authenticatedGet<ContractIdsResponse>('/isp/lista_ids_contratos', accessToken)
 	const ids = response.data ?? []
 	const invoices = loadInvoices()
-	const existingIds = new Set(invoices.map((invoice) => invoice.id))
+	const knownIds = new Set(invoices.map((invoice) => invoice.id))
 	const items: RunItem[] = []
 	const candidates: Array<{ installment: PendingInstallment; document: string; period: string }> = []
 
 	for (const contractId of ids) {
 		const raw = await authenticatedGet<unknown[]>(`/isp/contrato/individual?id_contrato=${contractId}`, accessToken)
 		const installments = raw.filter(isPending).sort((left, right) => (monthFromDetail(right.detalle_deuda) ?? '').localeCompare(monthFromDetail(left.detalle_deuda) ?? ''))
+		const contractRows = installments.filter((installment) => installment.deuda_id !== '0')
+		const hasContradictoryContract = contractRows.some((installment) => installment.contrato_id !== contractId)
+		const debtIds = contractRows.map((installment) => installment.deuda_id).filter((id): id is string => Boolean(id))
+		const hasDuplicates = new Set(debtIds).size !== debtIds.length
+		if (hasContradictoryContract || hasDuplicates) {
+			for (const installment of contractRows) {
+				items.push(baseItem(installment, 'invalid_contract', hasContradictoryContract
+					? 'La respuesta contiene una fila de otro contrato'
+					: 'La respuesta contiene cuotas duplicadas'))
+			}
+			continue
+		}
+		const statuses = new Set(contractRows.map((installment) => installment.estado))
+		const hasUnknownStatus = [...statuses].some((status) => !status || !['ACTIVO', 'CORTADO', 'CORTESIA', 'RETIRADO', 'RECHAZADO', 'ANULADO'].includes(status))
+		if (hasUnknownStatus) {
+			for (const installment of contractRows) items.push(baseItem(installment, 'invalid_contract', `Estado de contrato desconocido: ${installment.estado ?? 'desconocido'}`))
+			continue
+		}
+		if ([...statuses].some((status) => !settings.importableStatuses.includes(status as typeof settings.importableStatuses[number]))) {
+			for (const installment of contractRows) items.push(baseItem(installment, 'excluded_status', `Estado ${installment.estado ?? 'desconocido'} no importable`))
+			continue
+		}
+		const hasIncoherentCurrency = contractRows.some((installment) => {
+			if (Number(installment.deuda) < 0.01) return false
+			const price = Number(installment.precio_servicio)
+			return installment.moneda_sigla !== 'USD' || (price > 0 && Number(installment.deuda) < price * 0.01)
+		})
+		if (hasIncoherentCurrency) {
+			for (const installment of contractRows) items.push(baseItem(installment, 'incoherent_currency', 'El contrato reporta una moneda o monto incoherente con el plan'))
+			continue
+		}
 		const limit = settings.recentInstallmentsLimit
+		const contractCandidates: Array<{ installment: PendingInstallment; document: string; period: string }> = []
 		for (const installment of installments) {
 			const document = normalizeDocument(installment.identificacion_contrato)
 			const period = monthFromDetail(installment.detalle_deuda)
-			if (installment.deuda_id === '0' || !Number(installment.deuda)) continue
-			if (!settings.importableStatuses.some((status) => status === installment.estado)) {
-				items.push(baseItem(installment, 'excluded_status', `Estado ${installment.estado ?? 'desconocido'} no importable`))
+			if (installment.deuda_id === '0') continue
+			if (!Number(installment.deuda)) {
+				items.push(baseItem(installment, 'zero_balance', 'La cuota tiene saldo residual o deuda igual a cero'))
 				continue
 			}
 			if (!document) {
@@ -137,21 +177,14 @@ export async function runImport(accessToken: string, settings: PanelSettings, si
 				items.push(baseItem(installment, 'outside_window', 'La cuota está fuera de la ventana configurada'))
 				continue
 			}
-			const price = Number(installment.precio_servicio)
-			if (installment.moneda_sigla !== 'USD' || (price > 0 && Number(installment.deuda) < price * 0.01)) {
-				items.push(baseItem(installment, 'incoherent_currency', 'Moneda o monto incoherente con el plan'))
-				continue
-			}
-			candidates.push({ installment, document, period })
+			contractCandidates.push({ installment, document, period })
 		}
 		if (limit !== null) {
-			const contractCandidates = candidates.filter(({ installment }) => installment.contrato_id === contractId)
 			for (const candidate of contractCandidates.slice(limit)) {
-				const index = candidates.indexOf(candidate)
-				if (index >= 0) candidates.splice(index, 1)
-				items.push(baseItem(candidate.installment, 'outside_window', 'Supera el máximo de cuotas recientes por contrato'))
+				items.push(baseItem(candidate.installment, 'limit_reached', 'Supera el máximo de cuotas recientes por contrato'))
 			}
 		}
+		candidates.push(...(limit === null ? contractCandidates : contractCandidates.slice(0, limit)))
 	}
 
 	let totalAmount = 0
@@ -159,7 +192,7 @@ export async function runImport(accessToken: string, settings: PanelSettings, si
 	for (const candidate of candidates) {
 		const installment = candidate.installment
 		const id = installment.deuda_id ?? ''
-		if (existingIds.has(id)) {
+		if (knownIds.has(id)) {
 			items.push(baseItem(installment, 'already_imported', 'La cuota ya fue importada'))
 			continue
 		}
@@ -187,6 +220,7 @@ export async function runImport(accessToken: string, settings: PanelSettings, si
 			importedAt: new Date().toISOString(),
 		}
 		if (!simulation) invoices.push(invoice)
+		knownIds.add(id)
 		imported += 1
 		totalAmount += amount
 		items.push(baseItem(installment, 'imported', simulation ? 'Se importaría; simulación sin escritura' : 'Factura importada'))
@@ -203,12 +237,25 @@ export async function runPaymentUpdate(accessToken: string, simulation: boolean)
 	for (const invoice of invoices.filter((item) => item.status === 'open')) {
 		const response = await authenticatedGet<PaymentResponse>(`/isp/pago_informacion?id_contrato=${invoice.contractId}&tipo_busqueda=CUOTA&fecha_inicio=2020-01-01&fecha_fin=2099-12-31`, accessToken)
 		const matches = (response.data ?? []).filter((row) => row.detalle_pago?.id_cuota === Number(invoice.id))
-		const fullyPaid = matches.length > 0 && matches.every((row) => Number(row.detalle_pago?.saldo_cuota) === 0 && Number(row.detalle_pago?.valor_pago) > 0)
-		const partial = matches.some((row) => Number(row.detalle_pago?.valor_pago) > 0 && Number(row.detalle_pago?.saldo_cuota) > 0)
+		const hasContradictoryRows = matches.some((row) => row.detalle_pago?.id_contrato !== undefined && row.detalle_pago.id_contrato !== invoice.contractId)
+		const firstDetail = matches[0]?.detalle_pago
+		const rowsAgree = firstDetail !== undefined && matches.every((row) => {
+			const detail = row.detalle_pago
+			return detail
+				&& Number(detail.saldo_cuota) === Number(firstDetail.saldo_cuota)
+				&& Number(detail.valor_pago) === Number(firstDetail.valor_pago)
+				&& Number(detail.tarifa) === Number(firstDetail.tarifa)
+		})
+		const fullyPaid = matches.length > 0 && !hasContradictoryRows && rowsAgree
+			&& Number(firstDetail.saldo_cuota) === 0 && Number(firstDetail.valor_pago) > 0
+		const partial = matches.length > 0 && !hasContradictoryRows && rowsAgree
+			&& Number(firstDetail.valor_pago) > 0
+			&& Number(firstDetail.saldo_cuota) > 0
+			&& Number(firstDetail.saldo_cuota) < invoice.balance
 		if (fullyPaid) {
 			if (!simulation) {
 				const index = invoices.findIndex((item) => item.id === invoice.id)
-				if (index >= 0) invoices[index] = { ...invoice, balance: 0, status: 'paid' }
+				if (index >= 0) invoices[index] = { ...invoice, balance: 0, status: 'paid', paidAt: new Date().toISOString() }
 			}
 			updatedInvoices += 1
 			items.push({ id: invoice.id, contractId: invoice.contractId, customerDocument: invoice.customerDocument, period: invoice.period, result: 'paid', reason: simulation ? 'Se marcaría pagada; simulación sin escritura' : 'Factura marcada como pagada', amount: invoice.amount })

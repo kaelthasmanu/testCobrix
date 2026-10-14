@@ -7,7 +7,9 @@ export type ItemResult =
 	| 'outside_window'
 	| 'excluded_document'
 	| 'invalid_customer'
+	| 'invalid_contract'
 	| 'incoherent_currency'
+	| 'zero_balance'
 	| 'limit_reached'
 	| 'paid'
 	| 'partial_payment'
@@ -25,6 +27,7 @@ export interface StoredInvoice {
 	readonly balance: number
 	readonly status: 'open' | 'paid'
 	readonly importedAt: string
+	readonly paidAt?: string
 }
 
 export interface RunItem {

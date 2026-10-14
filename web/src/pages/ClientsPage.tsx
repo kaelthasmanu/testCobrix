@@ -11,37 +11,8 @@ import {
 	type PaginationState,
 	type SortingState,
 } from '@tanstack/react-table'
-import { authenticatedGet } from '../auth/api'
 import { useAuth } from '../auth/AuthContext'
-
-interface ContractIdsResponse {
-	readonly data?: readonly number[]
-}
-
-interface PendingInstallment {
-	readonly contrato_id?: number
-	readonly identificacion_contrato?: string
-	readonly nombre_contrato?: string
-	readonly telefono?: string
-	readonly email?: string
-	readonly estado?: string
-	readonly deuda?: number
-	readonly deuda_id?: string
-	readonly detalle_deuda?: readonly string[]
-}
-
-interface PaymentRow {
-	readonly id_factura?: number
-	readonly detalle_pago?: {
-		readonly id_cuota?: number
-		readonly valor_pago?: number
-		readonly saldo_cuota?: number
-	}
-}
-
-interface PaymentResponse {
-	readonly data?: readonly PaymentRow[]
-}
+import { loadInvoices } from '../sync/storage'
 
 interface Client {
 	readonly id: string
@@ -59,20 +30,6 @@ const columnHelper = createColumnHelper<Client>()
 const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
 const dateFormatter = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium' })
 
-function isPendingInstallment(value: unknown): value is PendingInstallment {
-	return typeof value === 'object' && value !== null
-}
-
-function isPaymentResponse(value: unknown): value is PaymentResponse {
-	return typeof value === 'object' && value !== null
-}
-
-function monthFromInstallment(installment: PendingInstallment): string | null {
-	const source = installment.detalle_deuda?.find((item) => /\d{4}-\d{2}/.test(item))
-	const match = source?.match(/\d{4}-\d{2}/)
-	return match ? `${match[0]}-01` : null
-}
-
 function formatDueDate(value: string | null): string {
 	if (!value) return '—'
 	return dateFormatter.format(new Date(`${value}T00:00:00Z`))
@@ -82,19 +39,7 @@ function clientType(document: string): Client['type'] {
 	return /^[JG]/i.test(document.trim()) ? 'Jurídico' : 'Natural'
 }
 
-async function loadClients(accessToken: string): Promise<Client[]> {
-	const contractsResponse = await authenticatedGet<ContractIdsResponse>('/isp/lista_ids_contratos', accessToken)
-	const contractIds = contractsResponse.data ?? []
-	const results = await Promise.all(contractIds.map(async (contractId) => {
-		const [pendingResponse, paymentResponse] = await Promise.all([
-			authenticatedGet<unknown[]>(`/isp/contrato/individual?id_contrato=${contractId}`, accessToken),
-			authenticatedGet<PaymentResponse>(`/isp/pago_informacion?id_contrato=${contractId}&tipo_busqueda=CUOTA&fecha_inicio=2020-01-01&fecha_fin=2099-12-31`, accessToken),
-		])
-		const pending = pendingResponse.filter(isPendingInstallment)
-		const payments = isPaymentResponse(paymentResponse) ? paymentResponse.data ?? [] : []
-		return { pending, payments }
-	}))
-
+function loadClients(): Client[] {
 	const grouped = new Map<string, {
 		name: string
 		document: string
@@ -105,12 +50,10 @@ async function loadClients(accessToken: string): Promise<Client[]> {
 		oldestDue: string | null
 	}>()
 
-	for (const result of results) {
-		const first = result.pending[0]
-		const document = first?.identificacion_contrato
-		if (!document) continue
+	for (const invoice of loadInvoices()) {
+		const document = invoice.customerDocument
 		const current = grouped.get(document) ?? {
-			name: first.nombre_contrato ?? 'Sin nombre',
+			name: invoice.customerName,
 			document,
 			contracts: new Set<number>(),
 			openInvoices: 0,
@@ -118,21 +61,13 @@ async function loadClients(accessToken: string): Promise<Client[]> {
 			debt: 0,
 			oldestDue: null,
 		}
-		for (const installment of result.pending) {
-			if (installment.contrato_id) current.contracts.add(installment.contrato_id)
-			if (Number(installment.deuda) > 0 && installment.deuda_id !== '0') {
-				current.openInvoices += 1
-				current.debt += Number(installment.deuda)
-				const due = monthFromInstallment(installment)
-				if (due && (!current.oldestDue || due < current.oldestDue)) current.oldestDue = due
-			}
-		}
-		for (const payment of result.payments) {
-			const invoiceId = Number(payment.id_factura)
-			const detail = payment.detalle_pago
-			if (invoiceId > 0 && Number(detail?.valor_pago) > 0 && Number(detail?.saldo_cuota) === 0) {
-				current.paidInvoices.add(invoiceId)
-			}
+		current.contracts.add(invoice.contractId)
+		if (invoice.status === 'open') {
+			current.openInvoices += 1
+			current.debt += invoice.balance
+			if (!current.oldestDue || invoice.dueDate < current.oldestDue) current.oldestDue = invoice.dueDate
+		} else {
+			current.paidInvoices.add(Number(invoice.id))
 		}
 		grouped.set(document, current)
 	}
@@ -189,16 +124,13 @@ export default function ClientsPage() {
 		let cancelled = false
 		setIsLoading(true)
 		setError('')
-		void loadClients(session.accessToken)
-			.then((loadedClients) => {
-				if (!cancelled) setClients(loadedClients)
-			})
-			.catch((cause: unknown) => {
-				if (!cancelled) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los clientes.')
-			})
-			.finally(() => {
-				if (!cancelled) setIsLoading(false)
-			})
+		try {
+			setClients(loadClients())
+		} catch (cause) {
+			if (!cancelled) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los clientes.')
+		} finally {
+			if (!cancelled) setIsLoading(false)
+		}
 		return () => {
 			cancelled = true
 		}
