@@ -1,4 +1,4 @@
-export interface LoginRequest {
+export interface AuthCredentials {
 	readonly user_name: string
 	readonly password: string
 }
@@ -8,6 +8,32 @@ export interface AuthSession {
 	readonly email: string
 	readonly accessToken: string
 	readonly expiresAt: number
+}
+
+export async function authenticatedGet<T>(path: string, accessToken: string): Promise<T> {
+	const url = `${apiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`
+	let response: Response
+	try {
+		response = await fetch(url, {
+			headers: {
+				accept: 'application/json',
+				authorization: `Bearer ${accessToken}`,
+			},
+		})
+	} catch (error) {
+		throw new Error('No se pudo conectar con la API. Revisa que el servidor esté activo.', { cause: error })
+	}
+
+	let body: unknown
+	try {
+		body = await response.json()
+	} catch {
+		throw new Error('La API devolvió una respuesta inválida.')
+	}
+	if (!response.ok) {
+		throw new Error(apiErrorMessage(body) ?? `No se pudo consultar la API (HTTP ${response.status}).`)
+	}
+	return body as T
 }
 
 interface LoginResponse {
@@ -58,7 +84,7 @@ function parseExpiration(value: string): number {
 	return expiresAt
 }
 
-export async function login(request: LoginRequest): Promise<AuthSession> {
+export async function authenticate(request: AuthCredentials): Promise<AuthSession> {
 	const url = `${apiBaseUrl()}/usuario/login`
 	let response: Response
 	try {
