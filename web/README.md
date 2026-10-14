@@ -2,7 +2,7 @@
 
 Panel de Cobrix migrado a React, TypeScript, Vite y Tailwind CSS. La distribución y las pantallas conservan el contenido del panel original; sus secciones siguen siendo placeholders por implementar.
 
-El panel solicita inicio de sesión a `POST /usuario/login` usando la API configurada en `.env`. El token solo se conserva en memoria, se elimina al cerrar sesión y la sesión se cierra automáticamente al llegar a `access_token_expires_in` (fecha UTC sin zona horaria).
+El panel solicita inicio de sesión a `POST /usuario/login` usando la API configurada en `.env`. La sesión se conserva en `sessionStorage` para sobrevivir recargas en la misma pestaña, se elimina al cerrar sesión o al expirar, y no se comparte con otras pestañas ni se conserva al cerrar la pestaña. `access_token_expires_in` se interpreta como fecha UTC sin zona horaria.
 
 ## Desarrollo
 
