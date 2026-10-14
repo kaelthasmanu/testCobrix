@@ -1,0 +1,56 @@
+services:
+  admin-api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "4310:4310"
+    volumes:
+      - admin-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4310/docs').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      PORT: "4320"
+      ADMIN_API_URL: http://admin-api:4310/api/v1
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en el archivo .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Define ENCRYPTION_KEY en el archivo .env}
+      DATABASE_URL: file:/app/data/cobrix.sqlite
+    ports:
+      - "4320:4320"
+    volumes:
+      - cobrix-data:/app/data
+    depends_on:
+      admin-api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4320').then(r => process.exit(r.status < 500 ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_COBRIX_API_URL: ${VITE_COBRIX_API_URL:-http://localhost:4320}
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  admin-data:
+  cobrix-data:
