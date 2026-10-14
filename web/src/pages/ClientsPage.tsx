@@ -12,19 +12,8 @@ import {
 	type SortingState,
 } from '@tanstack/react-table'
 import { useAuth } from '../auth/AuthContext'
+import type { Client } from '../interfaces/ClientsPage.interfaces'
 import { loadInvoices } from '../sync/storage'
-
-interface Client {
-	readonly id: string
-	readonly name: string
-	readonly document: string
-	readonly type: 'Natural' | 'Jurídico'
-	readonly contracts: number
-	readonly openInvoices: number
-	readonly paidInvoices: number
-	readonly debt: number
-	readonly oldestDue: string | null
-}
 
 const columnHelper = createColumnHelper<Client>()
 const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })

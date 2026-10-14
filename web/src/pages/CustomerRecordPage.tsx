@@ -2,36 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { authenticatedGet } from '../auth/api'
 import { useAuth } from '../auth/AuthContext'
+import type { ContractRow, Customer } from '../interfaces/CustomerRecordPage.interfaces'
 import { loadInvoices, loadRuns, type StoredInvoice, type SyncRun } from '../sync/storage'
-
-interface ContractRow {
-	readonly contrato_id?: number
-	readonly identificacion_contrato?: string
-	readonly nombre_contrato?: string
-	readonly telefono?: string
-	readonly email?: string
-	readonly estado?: string
-	readonly nombre_plan?: string
-	readonly precio_servicio?: string
-	readonly nombre_sucursal?: string
-	readonly sigla_sucursal?: string
-}
-
-interface Contract {
-	readonly id: number
-	readonly status: string
-	readonly plan: string
-	readonly price: number
-	readonly branch: string
-}
-
-interface Customer {
-	readonly name: string
-	readonly document: string
-	readonly email: string
-	readonly phone: string
-	readonly contracts: readonly Contract[]
-}
 
 const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
 const dateTime = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Caracas' })

@@ -2,19 +2,12 @@ import { useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { loadSettings } from '../config/settings'
+import type { SummaryMetrics } from '../interfaces/SummaryPage.interfaces'
 import { loadInvoices, loadRuns, type StoredInvoice, type SyncRun } from '../sync/storage'
 
 const apiUrl = import.meta.env.VITE_API_URL ?? 'No configurada'
 const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
 const dateFormatter = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium', timeStyle: 'short' })
-
-interface SummaryMetrics {
-	readonly customers: number
-	readonly contracts: number
-	readonly openInvoices: number
-	readonly paidInvoices: number
-	readonly outstandingAmount: number
-}
 
 function calculateMetrics(invoices: readonly StoredInvoice[]): SummaryMetrics {
 	return {
