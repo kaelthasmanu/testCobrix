@@ -2,24 +2,8 @@ export const IMPORTABLE_CONTRACT_STATUSES = ['ACTIVO', 'CORTADO', 'CORTESIA', 'R
 export const DOCUMENT_TYPES = ['V', 'E', 'J', 'G', 'P'] as const
 export const IMPORT_WINDOWS = ['none', '3', '6', '9', '12'] as const
 
-export type ImportableContractStatus = (typeof IMPORTABLE_CONTRACT_STATUSES)[number]
-export type DocumentType = (typeof DOCUMENT_TYPES)[number]
-export type ImportWindow = (typeof IMPORT_WINDOWS)[number]
-
-export interface PanelSettings {
-	readonly companyName: string
-	readonly companyRif: string
-	readonly billingEmail: string
-	readonly importableStatuses: readonly ImportableContractStatus[]
-	readonly importWindow: ImportWindow
-	readonly recentInstallmentsLimit: number | null
-	readonly graceDays: number
-	readonly maxNewInvoices: number | null
-	readonly maxNewAmount: number | null
-	readonly excludedDocumentTypes: readonly DocumentType[]
-	readonly automaticRunEnabled: boolean
-	readonly automaticRunTime: string
-}
+import type { DocumentType, ImportableContractStatus, PanelSettings } from '../interfaces/config.interfaces'
+export type { DocumentType, ImportWindow, ImportableContractStatus, PanelSettings } from '../interfaces/config.interfaces'
 
 export const DEFAULT_SETTINGS: PanelSettings = {
 	companyName: '',

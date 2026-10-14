@@ -1,9 +1,5 @@
-export interface Screen {
-	readonly title: string
-	readonly purpose: string
-	readonly section: string
-	readonly todo: readonly string[]
-}
+import type { Screen } from '../interfaces/data.interfaces'
+export type { Screen } from '../interfaces/data.interfaces'
 
 export const screens: Record<string, Screen> = {
 	'/': {

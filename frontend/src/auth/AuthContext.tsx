@@ -1,11 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { authenticate as requestAuthentication, type AuthCredentials, type AuthSession } from './api'
-
-interface AuthContextValue {
-	readonly session: AuthSession | null
-	readonly authenticate: (credentials: AuthCredentials) => Promise<void>
-	readonly disconnect: () => void
-}
+import { authenticate as requestAuthentication } from './api'
+import type { AuthContextValue, AuthCredentials, AuthSession } from '../interfaces/auth.interfaces'
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 const SESSION_STORAGE_KEY = 'cobrix.auth.session'
