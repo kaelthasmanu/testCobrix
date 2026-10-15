@@ -1,299 +1,114 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import {
-	createColumnHelper,
-	flexRender,
-	getCoreRowModel,
-	getFilteredRowModel,
-	getPaginationRowModel,
-	getSortedRowModel,
-	useReactTable,
-	type PaginationState,
-	type SortingState,
-} from '@tanstack/react-table'
-import { useAuth } from '../auth/AuthContext'
-import { authenticatedGet } from '../auth/api'
-import type { Client } from '../interfaces/ClientsPage.interfaces'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { ButtonLink, Card, EmptyState, ErrorNotice, PageHead, Pagination, Pill } from '../components/ui'
+import type { ClientRow, Page } from '../interfaces/api.interfaces'
+import { civilDate, money, personTypeLabel } from '../lib/format'
+import { queryString, useDebounced, usePage, useResource } from '../lib/useResource'
 
-const columnHelper = createColumnHelper<Client>()
-const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
-const dateFormatter = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium' })
+type SortKey = 'name' | 'document' | 'contracts' | 'openInvoices' | 'paidInvoices' | 'debt' | 'oldestDueDate'
 
-function formatDueDate(value: string | null): string {
-	if (!value) return '—'
-	return dateFormatter.format(new Date(`${value}T00:00:00Z`))
-}
-
-function clientType(document: string): Client['type'] {
-	return /^[JG]/i.test(document.trim()) ? 'Jurídico' : 'Natural'
-}
-
-const columns = [
-	columnHelper.accessor('name', {
-		header: 'Nombre',
-		cell: (info) => info.getValue(),
-		sortingFn: (left, right, id) => String(left.getValue(id)).localeCompare(String(right.getValue(id)), 'es'),
-	}),
-	columnHelper.accessor('document', { header: 'Documento', cell: (info) => <span className="mono">{info.getValue()}</span> }),
-	columnHelper.accessor('type', { header: 'Tipo', cell: (info) => <span className="pill info">{info.getValue()}</span> }),
-	columnHelper.accessor('contracts', { header: 'Contratos' }),
-	columnHelper.accessor('openInvoices', { header: 'Abiertas' }),
-	columnHelper.accessor('paidInvoices', { header: 'Pagadas' }),
-	columnHelper.accessor('debt', { header: 'Deuda', cell: (info) => money.format(info.getValue()) }),
-	columnHelper.accessor('oldestDue', { header: 'Vencimiento más antiguo', cell: (info) => formatDueDate(info.getValue()) }),
+const COLUMNS: ReadonlyArray<{ readonly key: SortKey | 'personType'; readonly label: string; readonly numeric?: boolean }> = [
+	{ key: 'name', label: 'Nombre' },
+	{ key: 'document', label: 'Documento' },
+	{ key: 'personType', label: 'Tipo' },
+	{ key: 'contracts', label: 'Contratos', numeric: true },
+	{ key: 'openInvoices', label: 'Abiertas', numeric: true },
+	{ key: 'paidInvoices', label: 'Pagadas', numeric: true },
+	{ key: 'debt', label: 'Deuda', numeric: true },
+	{ key: 'oldestDueDate', label: 'Vencimiento más antiguo' },
 ]
-const numericColumnIds = new Set(['contracts', 'openInvoices', 'paidInvoices', 'debt'])
 
 export default function ClientsPage() {
-	const { session } = useAuth()
-	const [clients, setClients] = useState<Client[]>([])
-	const [globalFilter, setGlobalFilter] = useState('')
-	const [typeFilter, setTypeFilter] = useState<'all' | Client['type']>('all')
-	const [debtFilter, setDebtFilter] = useState<'all' | 'with-debt' | 'without-debt'>('all')
-	const [sorting, setSorting] = useState<SortingState>([{ id: 'name', desc: false }])
-	const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 })
-	const [error, setError] = useState('')
-	const [isLoading, setIsLoading] = useState(true)
+	const navigate = useNavigate()
+	const [searchInput, setSearchInput] = useState('')
+	const search = useDebounced(searchInput.trim())
+	const [type, setType] = useState<'' | 'natural' | 'juridica'>('')
+	const [debt, setDebt] = useState<'' | 'with' | 'without'>('')
+	const [sort, setSort] = useState<{ key: SortKey; order: 'asc' | 'desc' }>({ key: 'name', order: 'asc' })
+	const [pageSize, setPageSize] = useState(20)
+	const [page, setPage] = usePage({ search, type, debt, sort, pageSize })
+	// La búsqueda, los filtros, el orden y la paginación los resuelve el backend: solo viaja la página visible.
+	const { data, error, loading, reload } = useResource<Page<ClientRow>>(`/clients${queryString({ search, type, debt, sort: sort.key, order: sort.order, page, pageSize })}`)
 
 	useEffect(() => {
-		document.title = 'Clientes · Prueba de facturación'
-		if (!session) {
-			setIsLoading(false)
-			setError('')
-			return
-		}
-		let cancelled = false
-		setIsLoading(true)
-		setError('')
-		void authenticatedGet<Array<Record<string, unknown>>>('/clients', session.accessToken)
-			.then((rows) => {
-				if (cancelled) return
-				setClients(rows.map((row) => ({
-					id: String(row.document),
-					name: String(row.name),
-					document: String(row.document),
-					type: clientType(String(row.document)),
-					contracts: Number(row.contracts ?? 0),
-					openInvoices: Number(row.openInvoices ?? 0),
-					paidInvoices: Number(row.paidInvoices ?? 0),
-					debt: Number(row.debt ?? 0),
-					oldestDue: typeof row.oldestDueDate === 'string' ? row.oldestDueDate : null,
-				})))
-			})
-			.catch((cause: unknown) => {
-				if (!cancelled) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los clientes.')
-			})
-			.finally(() => {
-				if (!cancelled) setIsLoading(false)
-			})
-		return () => {
-			cancelled = true
-		}
-	}, [session])
+		document.title = 'Clientes · Cobrix'
+	}, [])
 
-	const filteredClients = useMemo(
-		() => clients.filter((client) => {
-			const matchesType = typeFilter === 'all' || client.type === typeFilter
-			const matchesDebt = debtFilter === 'all'
-				|| (debtFilter === 'with-debt' && client.debt > 0)
-				|| (debtFilter === 'without-debt' && client.debt === 0)
-			return matchesType && matchesDebt
-		}),
-		[clients, debtFilter, typeFilter],
-	)
-
-	const table = useReactTable({
-		data: filteredClients,
-		columns,
-		state: { globalFilter, sorting, pagination },
-		onGlobalFilterChange: setGlobalFilter,
-		onSortingChange: setSorting,
-		onPaginationChange: setPagination,
-		getCoreRowModel: getCoreRowModel(),
-		getFilteredRowModel: getFilteredRowModel(),
-		getSortedRowModel: getSortedRowModel(),
-		getPaginationRowModel: getPaginationRowModel(),
-		globalFilterFn: 'includesString',
-		autoResetPageIndex: true,
-	})
-	const visibleRows = table.getRowModel().rows
-	const filteredRowCount = table.getFilteredRowModel().rows.length
-	const countLabel = `${filteredRowCount} ${filteredRowCount === 1 ? 'cliente' : 'clientes'}`
-
-	if (!session) {
-		return (
-			<>
-				<div className="head">
-					<div>
-						<h1>Clientes</h1>
-						<p>Tabla de los clientes importados desde el administrador.</p>
-					</div>
-				</div>
-				<section className="rounded-[10px] border border-line bg-surface p-5">
-					<p className="m-0 text-muted">Configura la conexión con el administrador para consultar los clientes.</p>
-					<Link className="mt-4 inline-block rounded-md border border-primary bg-primary px-4 py-2 font-semibold !text-primary-fg hover:no-underline hover:opacity-90" to="/configuracion">
-						Ir a configuración
-					</Link>
-				</section>
-			</>
-		)
-	}
-
-	function updatePageSize(value: number) {
-		setPagination((current) => ({ ...current, pageIndex: 0, pageSize: value }))
+	function toggleSort(key: SortKey) {
+		setSort((current) => current.key === key ? { key, order: current.order === 'asc' ? 'desc' : 'asc' } : { key, order: key === 'debt' || key === 'openInvoices' ? 'desc' : 'asc' })
 	}
 
 	function resetFilters() {
-		setGlobalFilter('')
-		setTypeFilter('all')
-		setDebtFilter('all')
-		setSorting([{ id: 'name', desc: false }])
-		updatePageSize(10)
+		setSearchInput('')
+		setType('')
+		setDebt('')
+		setSort({ key: 'name', order: 'asc' })
 	}
+
+	const filtering = Boolean(search || type || debt)
+	const rows = data?.items ?? []
 
 	return (
 		<>
-			<div className="head">
-				<div>
-					<h1>Clientes</h1>
-					<p>Tabla de los clientes importados desde el administrador.</p>
+			<PageHead description="Clientes que Cobrix importó del administrador: uno por titular, con todos sus contratos." title="Clientes" />
+			<Card detail={data ? `${data.total.toLocaleString('es-VE')} ${data.total === 1 ? 'cliente' : 'clientes'}${filtering ? ' con estos filtros' : ''}` : 'Cargando…'} title="Clientes importados">
+				<div className="grid gap-2 border-b border-line p-4 sm:grid-cols-[minmax(220px,1fr)_170px_170px_auto]">
+					<label className="sr-only" htmlFor="client-search">Buscar clientes</label>
+					<input id="client-search" onChange={(event) => setSearchInput(event.target.value)} placeholder="Buscar por nombre, cédula o RIF (V-12345678)…" type="search" value={searchInput} />
+					<label className="sr-only" htmlFor="client-type-filter">Filtrar por tipo</label>
+					<select id="client-type-filter" onChange={(event) => setType(event.target.value as typeof type)} value={type}>
+						<option value="">Todos los tipos</option>
+						<option value="natural">Personas naturales</option>
+						<option value="juridica">Personas jurídicas</option>
+					</select>
+					<label className="sr-only" htmlFor="client-debt-filter">Filtrar por deuda</label>
+					<select id="client-debt-filter" onChange={(event) => setDebt(event.target.value as typeof debt)} value={debt}>
+						<option value="">Con y sin deuda</option>
+						<option value="with">Con deuda</option>
+						<option value="without">Al día</option>
+					</select>
+					<button className="btn" onClick={resetFilters} type="button">Limpiar</button>
 				</div>
-			</div>
-			<section className="min-w-0 rounded-[10px] border border-line bg-surface">
-				<header className="grid gap-4 border-b border-line px-4 py-3.5">
-					<div className="flex flex-wrap items-center justify-between gap-3">
-						<h2>Clientes importados</h2>
-						<p className="mb-0 text-xs text-muted">{countLabel}</p>
+				{error && <div className="p-4"><ErrorNotice message={error} onRetry={reload} title="No se pudieron cargar los clientes" /></div>}
+				{!error && data && data.total === 0 && !filtering && <EmptyState action={<ButtonLink primary to="/sincronizacion">Ir a Sincronización</ButtonLink>} title="Todavía no hay clientes">Los clientes aparecen al importar facturas desde el administrador. Simula una importación para ver cuántos se crearían.</EmptyState>}
+				{!error && data && data.total === 0 && filtering && <EmptyState title="Ningún cliente coincide">Prueba con otro nombre o documento, o pulsa «Limpiar».</EmptyState>}
+				{rows.length > 0 && (
+					<div className={`overflow-x-auto transition-opacity ${loading ? 'opacity-60' : ''}`}>
+						<table className="w-full min-w-[920px] border-collapse">
+							<thead>
+								<tr>
+									{COLUMNS.map((column) => {
+										const sortable = column.key !== 'personType'
+										const active = sort.key === column.key
+										return (
+											<th aria-sort={active ? (sort.order === 'asc' ? 'ascending' : 'descending') : undefined} className={column.numeric ? 'text-right' : 'text-left'} key={column.key}>
+												{sortable
+													? <button className="inline-flex items-center gap-1 hover:text-fg" onClick={() => toggleSort(column.key as SortKey)} type="button">{column.label}<span aria-hidden="true" className="text-[11px]">{active ? (sort.order === 'asc' ? '↑' : '↓') : '↕'}</span></button>
+													: column.label}
+											</th>
+										)
+									})}
+								</tr>
+							</thead>
+							<tbody>
+								{rows.map((client) => (
+									<tr className="cursor-pointer hover:bg-sunken" key={client.document} onClick={(event) => { if (!(event.target as HTMLElement).closest('a')) navigate(`/clientes/${encodeURIComponent(client.document)}`) }}>
+										<td><Link className="font-medium" to={`/clientes/${encodeURIComponent(client.document)}`}>{client.name}</Link></td>
+										<td className="mono">{client.document}</td>
+										<td><Pill tone={client.personType === 'juridica' ? 'info' : 'mute'}>{personTypeLabel(client.personType)}</Pill></td>
+										<td className="text-right tabular-nums">{client.contracts}</td>
+										<td className="text-right tabular-nums">{client.openInvoices}</td>
+										<td className="text-right tabular-nums">{client.paidInvoices}</td>
+										<td className="text-right tabular-nums"><span className={client.debt > 0 ? 'font-semibold' : 'text-muted'}>{money(client.debt)}</span></td>
+										<td>{civilDate(client.oldestDueDate)}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
 					</div>
-					<div className="grid gap-2 sm:grid-cols-[minmax(240px,1fr)_180px_180px_auto]">
-						<label className="text-sm font-medium" htmlFor="client-search">
-							<span className="sr-only">Buscar clientes</span>
-							<input
-								className="w-full rounded-md border border-line bg-surface px-3 py-2 font-normal text-fg outline-none focus-visible:ring-2 focus-visible:ring-primary"
-								id="client-search"
-								onChange={(event) => setGlobalFilter(event.target.value)}
-								placeholder="Buscar por nombre o documento..."
-								type="search"
-								value={globalFilter}
-							/>
-						</label>
-						<label className="sr-only" htmlFor="client-type-filter">Filtrar por tipo</label>
-						<select
-							className="rounded-md border border-line bg-surface px-3 py-2 text-fg outline-none focus-visible:ring-2 focus-visible:ring-primary"
-							id="client-type-filter"
-							onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}
-							value={typeFilter}
-						>
-							<option value="all">Todos los tipos</option>
-							<option value="Natural">Naturales</option>
-							<option value="Jurídico">Jurídicos</option>
-						</select>
-						<label className="sr-only" htmlFor="client-debt-filter">Filtrar por deuda</label>
-						<select
-							className="rounded-md border border-line bg-surface px-3 py-2 text-fg outline-none focus-visible:ring-2 focus-visible:ring-primary"
-							id="client-debt-filter"
-							onChange={(event) => setDebtFilter(event.target.value as typeof debtFilter)}
-							value={debtFilter}
-						>
-							<option value="all">Toda situación</option>
-							<option value="with-debt">Con deuda</option>
-							<option value="without-debt">Sin deuda</option>
-						</select>
-						<button className="rounded-md border border-line bg-surface px-3 py-2 font-medium text-fg hover:bg-sunken" onClick={resetFilters} type="button">
-							Limpiar
-						</button>
-					</div>
-				</header>
-				<div className="p-4">
-					{isLoading && <p className="py-8 text-center text-muted">Cargando clientes…</p>}
-					{error && <p className="flash bad" role="alert">{error}</p>}
-					{!isLoading && !error && visibleRows.length === 0 && (
-						<p className="py-8 text-center text-muted">{filteredRowCount === 0 ? 'No hay clientes que coincidan con los filtros.' : 'No hay clientes importados.'}</p>
-					)}
-					{!isLoading && !error && visibleRows.length > 0 && (
-						<div className="overflow-x-auto">
-							<table className="w-full min-w-[900px] border-collapse">
-								<thead>
-									{table.getHeaderGroups().map((headerGroup) => (
-										<tr key={headerGroup.id}>
-											{headerGroup.headers.map((header) => (
-												<th className={numericColumnIds.has(header.column.id) ? 'text-right' : 'text-left'} key={header.id}>
-													{header.isPlaceholder ? null : (
-														<button
-															className="inline-flex items-center gap-1 hover:text-fg"
-															onClick={header.column.getToggleSortingHandler()}
-															type="button"
-														>
-															{flexRender(header.column.columnDef.header, header.getContext())}
-															<span aria-hidden="true" className="text-[11px]">
-																{header.column.getIsSorted() === 'asc' ? '↑' : header.column.getIsSorted() === 'desc' ? '↓' : '↕'}
-															</span>
-														</button>
-													)}
-												</th>
-											))}
-										</tr>
-									))}
-								</thead>
-								<tbody>
-									{visibleRows.map((row) => (
-										<tr className="cursor-pointer hover:bg-sunken" key={row.id}>
-											{row.getVisibleCells().map((cell) => (
-												<td className={numericColumnIds.has(cell.column.id) ? 'text-right' : ''} key={cell.id}>
-													{cell.column.id === 'name'
-														? <Link className="font-medium" to={`/clientes/${encodeURIComponent(row.original.document)}`}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</Link>
-														: flexRender(cell.column.columnDef.cell, cell.getContext())}
-												</td>
-											))}
-										</tr>
-									))}
-								</tbody>
-							</table>
-						</div>
-					)}
-					{!isLoading && !error && filteredRowCount > 0 && (
-						<div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-							<label className="flex items-center gap-2 text-sm text-muted" htmlFor="client-page-size">
-								Filas por página
-								<select
-									className="rounded-md border border-line bg-surface px-2 py-1.5 text-fg outline-none focus-visible:ring-2 focus-visible:ring-primary"
-									id="client-page-size"
-									onChange={(event) => updatePageSize(Number(event.target.value))}
-									value={pagination.pageSize}
-								>
-									<option value={10}>10</option>
-									<option value={20}>20</option>
-									<option value={50}>50</option>
-									<option value={100}>100</option>
-								</select>
-							</label>
-							<div className="flex items-center gap-2">
-								<span className="text-sm text-muted">
-									Página {table.getState().pagination.pageIndex + 1} de {table.getPageCount()}
-								</span>
-								<button
-									aria-label="Página anterior"
-									className="rounded-md border border-line bg-surface px-3 py-1.5 font-medium text-fg hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-50"
-									disabled={!table.getCanPreviousPage()}
-									onClick={() => table.previousPage()}
-									type="button"
-								>
-									Anterior
-								</button>
-								<button
-									aria-label="Página siguiente"
-									className="rounded-md border border-line bg-surface px-3 py-1.5 font-medium text-fg hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-50"
-									disabled={!table.getCanNextPage()}
-									onClick={() => table.nextPage()}
-									type="button"
-								>
-									Siguiente
-								</button>
-							</div>
-						</div>
-					)}
-				</div>
-			</section>
+				)}
+				{data && <Pagination noun="clientes" onPage={setPage} onPageSize={setPageSize} page={data.page} pageCount={data.pageCount} pageSize={data.pageSize} total={data.total} />}
+			</Card>
 		</>
 	)
 }

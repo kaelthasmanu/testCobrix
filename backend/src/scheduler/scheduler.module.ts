@@ -7,5 +7,6 @@ import { AutomaticRunService } from './automatic-run.service'
 @Module({
 	imports: [ScheduleModule.forRoot(), SettingsModule, SyncModule],
 	providers: [AutomaticRunService],
+	exports: [AutomaticRunService],
 })
 export class SchedulerModule {}

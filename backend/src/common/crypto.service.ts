@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 
@@ -6,8 +6,8 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 export class CryptoService {
 	private readonly key: Buffer
 
-	constructor(config: ConfigService) {
-		this.key = createHash('sha256').update(config.get<string>('ENCRYPTION_KEY', config.get<string>('JWT_SECRET', 'development-only-secret'))).digest()
+	constructor(@Inject(ConfigService) config: ConfigService) {
+		this.key = createHash('sha256').update(config.get<string>('ENCRYPTION_KEY', 'development-only-key')).digest()
 	}
 
 	encrypt(value: string): string {

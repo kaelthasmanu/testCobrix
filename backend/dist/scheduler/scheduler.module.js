@@ -19,5 +19,6 @@ exports.SchedulerModule = SchedulerModule = __decorate([
     (0, common_1.Module)({
         imports: [schedule_1.ScheduleModule.forRoot(), settings_module_1.SettingsModule, sync_module_1.SyncModule],
         providers: [automatic_run_service_1.AutomaticRunService],
+        exports: [automatic_run_service_1.AutomaticRunService],
     })
 ], SchedulerModule);

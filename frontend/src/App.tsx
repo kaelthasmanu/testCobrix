@@ -1,38 +1,31 @@
 import { useEffect } from 'react'
-import { Link, Route, Routes } from 'react-router-dom'
-import { useAuth } from './auth/AuthContext'
+import { Route, Routes } from 'react-router-dom'
 import { PanelLayout } from './components/PanelLayout'
-import AssignmentPage from './pages/AssignmentPage'
+import { ButtonLink, EmptyState } from './components/ui'
 import ClientsPage from './pages/ClientsPage'
 import ConfigurationPage from './pages/ConfigurationPage'
 import CustomerRecordPage from './pages/CustomerRecordPage'
-import SynchronizationPage from './pages/SynchronizationPage'
+import RunDetailPage from './pages/RunDetailPage'
 import SummaryPage from './pages/SummaryPage'
+import SynchronizationPage from './pages/SynchronizationPage'
 
 function NotFoundPage() {
 	useEffect(() => {
-		document.title = 'No encontrado · Prueba de facturación'
+		document.title = 'No encontrado · Cobrix'
 	}, [])
-	return (
-		<>
-			<h1>No encontrado</h1>
-			<p><Link to="/">Volver</Link></p>
-		</>
-	)
+	return <EmptyState action={<ButtonLink primary to="/">Ir al resumen</ButtonLink>} title="Esta página no existe">Revisa la dirección o vuelve al resumen.</EmptyState>
 }
 
 export default function App() {
-	const { session } = useAuth()
-
 	return (
-		<PanelLayout session={session}>
+		<PanelLayout>
 			<Routes>
 				<Route path="/" element={<SummaryPage />} />
 				<Route path="/clientes" element={<ClientsPage />} />
-				<Route path="/clientes/:customerId" element={<CustomerRecordPage />} />
+				<Route path="/clientes/:document" element={<CustomerRecordPage />} />
 				<Route path="/sincronizacion" element={<SynchronizationPage />} />
+				<Route path="/sincronizacion/:runId" element={<RunDetailPage />} />
 				<Route path="/configuracion" element={<ConfigurationPage />} />
-				<Route path="/enunciado" element={<AssignmentPage />} />
 				<Route path="*" element={<NotFoundPage />} />
 			</Routes>
 		</PanelLayout>

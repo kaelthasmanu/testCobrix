@@ -1,145 +1,148 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { authenticatedGet } from '../auth/api'
-import { useAuth } from '../auth/AuthContext'
-import type { SummaryResponse } from '../interfaces/SummaryPage.interfaces'
-
-const apiUrl = import.meta.env.VITE_COBRIX_API_URL ?? 'http://127.0.0.1:4320'
-const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
-const dateFormatter = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium', timeStyle: 'short' })
-
-function formatDate(value: string): string {
-	return dateFormatter.format(new Date(value))
-}
-
-function runTypeLabel(run: SummaryResponse['recentRuns'][number]): string {
-	return run.type === 'import' ? 'Importación' : 'Actualización de pagadas'
-}
-
-function runTone(run: SummaryResponse['recentRuns'][number]): string {
-	return run.status === 'completed' ? 'ok' : 'bad'
-}
-
-function runStatusLabel(run: SummaryResponse['recentRuns'][number]): string {
-	return run.status === 'completed' ? 'Completada' : 'Falló'
-}
+import { ButtonLink, Card, EmptyState, ErrorNotice, Loading, Metric, PageHead, Pill } from '../components/ui'
+import type { Alert, SummaryResponse } from '../interfaces/api.interfaces'
+import { RUN_TYPE_LABELS, civilDate, dateTime, money } from '../lib/format'
+import { useSyncRunner } from '../lib/runner'
+import { useResource } from '../lib/useResource'
+import { ProviderMissing } from '../components/ProviderMissing'
 
 export default function SummaryPage() {
-	const { session } = useAuth()
-	const [summary, setSummary] = useState<SummaryResponse | null>(null)
-	const [error, setError] = useState('')
+	const { data: summary, error, loading, reload } = useResource<SummaryResponse>('/summary')
+	const runner = useSyncRunner()
 
 	useEffect(() => {
-		document.title = 'Resumen · Prueba de facturación'
-		if (!session) return
-		void authenticatedGet<SummaryResponse>('/summary', session.accessToken)
-			.then(setSummary)
-			.catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No se pudo cargar el resumen.'))
-	}, [session])
+		document.title = 'Resumen · Cobrix'
+	}, [])
 
-	if (!session) return <section className="rounded-[10px] border border-line bg-surface p-5">Configura la conexión con el administrador en <Link to="/configuracion">Configuración</Link>.</section>
-	if (error) return <p className="flash bad" role="alert">{error}</p>
-	if (!summary) return <p className="text-muted">Cargando resumen…</p>
-	const { metrics, automaticRun, recentRuns } = summary
+	const actions = (
+		<>
+			<button className="btn primary" disabled={runner.running || summary?.provider.configured === false} onClick={() => runner.request('import', false)} type="button">Importar</button>
+			<button className="btn" disabled={runner.running || summary?.provider.configured === false} onClick={() => runner.request('payments', false)} type="button">Actualizar pagadas</button>
+		</>
+	)
 
 	return (
 		<>
-			<div className="head">
-				<div>
-					<h1>Resumen</h1>
-					<p>Vista general de la integración con el administrador de facturas.</p>
-				</div>
-				<div className="flex flex-wrap gap-2">
-					<Link className="btn primary !text-primary-fg hover:no-underline" to="/sincronizacion">Importar cuotas</Link>
-					<Link className="btn hover:no-underline" to="/sincronizacion">Actualizar pagadas</Link>
-				</div>
-			</div>
-
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-				<MetricCard label="Clientes importados" value={metrics.clients} />
-				<MetricCard label="Contratos" value={metrics.contracts} />
-				<MetricCard label="Facturas abiertas" value={metrics.openInvoices} />
-				<MetricCard label="Facturas pagadas" value={metrics.paidInvoices} />
-				<MetricCard label="Monto por cobrar" value={money.format(metrics.receivable)} />
-			</section>
-
-			<div className="grid gap-5 lg:grid-cols-2">
-				<section className="rounded-[10px] border border-line bg-surface">
-					<header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3.5">
-						<h2>Proveedor configurado</h2>
-						<Link className="text-sm font-medium hover:no-underline hover:underline" to="/configuracion">Editar configuración</Link>
-					</header>
-					<div className="grid gap-3 p-4">
-						<dl className="facts">
-							<dt>URL de la API</dt><dd className="mono break-all">{apiUrl}</dd>
-							<dt>Usuario</dt><dd>{summary.provider?.usuario ?? '—'}</dd>
-							<dt>Correo</dt><dd>{summary.provider?.email || session.email}</dd>
-							<dt>Estado</dt><dd><span className={`pill ${summary.provider ? 'ok' : 'warn'}`}>{summary.provider ? 'Conectado' : 'Sin conexión'}</span></dd>
-						</dl>
-						{!session && <Link className="btn primary w-fit !text-primary-fg hover:no-underline" to="/configuracion">Configurar proveedor</Link>}
-					</div>
-				</section>
-
-				<section className="rounded-[10px] border border-line bg-surface">
-					<header className="border-b border-line px-4 py-3.5"><h2>Corrida automática</h2></header>
-					<div className="grid gap-3 p-4">
-						<div className="flex items-center gap-2">
-							<span className={`pill ${automaticRun.enabled ? 'ok' : 'mute'}`}>
-							{automaticRun.enabled ? 'Activa' : 'Inactiva'}
-							</span>
-							<strong>{automaticRun.enabled ? `Todos los días a las ${automaticRun.time}` : 'No programada'}</strong>
-						</div>
-						<p className="m-0 text-sm text-muted">
-							{automaticRun.enabled
-								? 'La programación está guardada para ejecutarse en America/Caracas.'
-								: 'Activa una corrida diaria desde Configuración.'}
-						</p>
-						<Link className="btn w-fit hover:no-underline" to="/configuracion">Ver configuración</Link>
-					</div>
-				</section>
-			</div>
-
-			<section className="rounded-[10px] border border-line bg-surface">
-				<header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5">
-					<div>
-						<h2>Últimas corridas</h2>
-						<p className="mb-0 mt-1 text-xs text-muted">Historial reciente de importaciones y actualizaciones.</p>
-					</div>
-					<Link to="/sincronizacion">Ver historial completo</Link>
-				</header>
-				<div className="p-4">
-					{recentRuns.length === 0
-						? <p className="m-0 py-5 text-center text-muted">Aún no hay corridas registradas.</p>
-						: (
-							<div className="overflow-x-auto">
-								<table className="w-full min-w-[680px] border-collapse">
-									<thead><tr><th>Tipo</th><th>Fecha</th><th>Modo</th><th>Estado</th><th>Resultado</th></tr></thead>
-									<tbody>
-										{recentRuns.map((run) => (
-											<tr key={run.id}>
-												<td>{runTypeLabel(run)}</td>
-												<td>{formatDate(run.started_at)}</td>
-												<td><span className="pill info">{run.simulation ? 'Simulación' : 'Ejecución'}</span></td>
-												<td><span className={`pill ${runTone(run)}`}>{runStatusLabel(run)}</span></td>
-												<td>{run.summary}</td>
-											</tr>
-										))}
-									</tbody>
-								</table>
-							</div>
-						)}
-				</div>
-			</section>
-
+			<PageHead actions={actions} description="Cómo está la cartera importada del administrador de facturas." title="Resumen" />
+			{runner.dialog}
+			{runner.progressView}
+			{runner.error && <ErrorNotice message={runner.error} title="No se pudo ejecutar la corrida" />}
+			{loading && !summary && <Loading label="Cargando resumen…" />}
+			{error && <ErrorNotice message={error} onRetry={reload} title="No se pudo cargar el resumen" />}
+			{summary && <SummaryContent summary={summary} />}
 		</>
 	)
 }
 
-function MetricCard({ label, value }: { readonly label: string; readonly value: number | string }) {
+function SummaryContent({ summary }: { readonly summary: SummaryResponse }) {
+	const { metrics, aging, provider, automaticRun, recentRuns, alerts } = summary
+	const empty = metrics.clients === 0
 	return (
-		<div className="grid gap-1 rounded-[10px] border border-line bg-surface p-3.5">
-			<span className="text-xs text-muted">{label}</span>
-			<strong className="text-xl tabular-nums">{value}</strong>
+		<>
+			<section aria-label="Totales" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+				<Metric label="Clientes" value={metrics.clients} />
+				<Metric label="Contratos" value={metrics.contracts} />
+				<Metric label="Facturas abiertas" tone={metrics.openInvoices > 0 ? 'warn' : undefined} value={metrics.openInvoices} />
+				<Metric label="Facturas pagadas" tone={metrics.paidInvoices > 0 ? 'ok' : undefined} value={metrics.paidInvoices} />
+				<div className="col-span-2 lg:col-span-1"><Metric hint={`al ${civilDate(summary.today)}`} label="Por cobrar" value={money(metrics.receivable)} /></div>
+			</section>
+
+			{!provider.configured && <ProviderMissing />}
+
+			{empty && provider.configured && (
+				<Card>
+					<EmptyState action={<ButtonLink primary to="/sincronizacion">Ir a Sincronización</ButtonLink>} title="Todavía no hay datos importados">
+						Revisa las reglas en Configuración y luego usa «Simular importación» para ver qué se traería del administrador sin escribir nada.
+					</EmptyState>
+				</Card>
+			)}
+
+			<div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+				<Card detail="Lo que conviene mirar hoy" title="Atención">
+					{alerts.length === 0
+						? <p className="m-0 p-4 text-sm text-muted">Nada pendiente: la última importación y la última actualización no dejaron casos dudosos.</p>
+						: <ul className="m-0 grid list-none gap-0 divide-y divide-line p-0">{alerts.map((alert) => <AlertRow alert={alert} key={alert.id} />)}</ul>}
+				</Card>
+				<Card detail="Facturas abiertas según días desde el vencimiento" title="Antigüedad de la deuda">
+					<AgingBars aging={aging} />
+				</Card>
+			</div>
+
+			<div className="grid gap-5 lg:grid-cols-2">
+				<Card actions={<Link className="text-sm" to="/configuracion">Editar</Link>} title="Proveedor configurado">
+					<dl className="facts p-4">
+						<dt>URL de la API</dt><dd className="mono break-all">{provider.baseUrl}</dd>
+						<dt>Usuario</dt><dd>{provider.username || '—'}</dd>
+						<dt>Estado</dt><dd><Pill tone={provider.configured ? 'ok' : 'bad'}>{provider.configured ? 'Credenciales guardadas' : 'Sin configurar'}</Pill></dd>
+					</dl>
+				</Card>
+				<Card actions={<Link className="text-sm" to="/configuracion#corrida-automatica">Editar</Link>} title="Corrida automática">
+					<dl className="facts p-4">
+						<dt>Estado</dt><dd><Pill tone={automaticRun.enabled ? 'ok' : 'mute'}>{automaticRun.enabled ? 'Activa' : 'Inactiva'}</Pill></dd>
+						<dt>Horario</dt><dd>{automaticRun.enabled ? `Todos los días a las ${automaticRun.time} (${automaticRun.timeZone}): importar y actualizar pagadas` : 'Actívala en Configuración para correr sin intervención.'}</dd>
+						{automaticRun.nextRunAt && <><dt>Próxima</dt><dd>{dateTime(automaticRun.nextRunAt)}</dd></>}
+						<dt>Última</dt><dd>{automaticRun.last ? <Link to={`/sincronizacion/${automaticRun.last.id}`}>{dateTime(automaticRun.last.startedAt)} · {automaticRun.last.summary}</Link> : 'Ninguna todavía'}</dd>
+					</dl>
+				</Card>
+			</div>
+
+			<Card actions={<Link className="text-sm" to="/sincronizacion">Ver historial</Link>} title="Últimas corridas">
+				{recentRuns.length === 0
+					? <EmptyState title="Aún no hay corridas">Empieza con «Simular importación» en Sincronización.</EmptyState>
+					: (
+						<div className="overflow-x-auto">
+							<table className="w-full min-w-[640px] border-collapse">
+								<thead><tr><th>Corrida</th><th>Fecha</th><th>Estado</th><th>Resultado</th></tr></thead>
+								<tbody>
+									{recentRuns.map((run) => (
+										<tr key={run.id}>
+											<td><Link className="font-medium" to={`/sincronizacion/${run.id}`}>{RUN_TYPE_LABELS[run.type]}</Link>{run.simulation && <> <Pill tone="info">Simulación</Pill></>}{run.trigger === 'automatic' && <> <Pill tone="mute">Automática</Pill></>}</td>
+											<td className="whitespace-nowrap">{dateTime(run.startedAt)}</td>
+											<td><Pill tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'bad' : 'info'}>{run.status === 'completed' ? 'Completada' : run.status === 'failed' ? 'Falló' : 'En curso'}</Pill></td>
+											<td>{run.summary}</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
+					)}
+			</Card>
+		</>
+	)
+}
+
+function AlertRow({ alert }: { readonly alert: Alert }) {
+	const icon = alert.severity === 'bad' ? '⛔' : alert.severity === 'warn' ? '⚠️' : 'ℹ️'
+	const severity = alert.severity === 'bad' ? 'Urgente' : alert.severity === 'warn' ? 'Revisar' : 'Aviso'
+	return (
+		<li className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 px-4 py-3">
+			<span aria-hidden="true">{icon}</span>
+			<div className="grid gap-1">
+				<div className="flex flex-wrap items-center gap-2"><Pill tone={alert.severity}>{severity}</Pill><strong>{alert.title}</strong></div>
+				<p className="m-0 text-sm text-muted">{alert.detail}</p>
+				{alert.items && <ul className="m-0 grid gap-0.5 pl-4 text-xs text-muted">{alert.items.map((item) => <li key={item}>{item}</li>)}</ul>}
+				{alert.link && <Link className="w-fit text-sm" to={alert.link}>Ver detalle →</Link>}
+			</div>
+		</li>
+	)
+}
+
+/** Barras horizontales de una sola serie (monto por tramo), con etiqueta directa de monto y cantidad. */
+function AgingBars({ aging }: { readonly aging: SummaryResponse['aging'] }) {
+	const max = Math.max(0, ...aging.map((bucket) => bucket.amount))
+	if (max === 0) return <p className="m-0 p-4 text-sm text-muted">Sin facturas abiertas.</p>
+	return (
+		<div className="grid gap-3 p-4">
+			{aging.map((bucket) => (
+				<div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[130px_minmax(0,1fr)]" key={bucket.key} title={`${bucket.label}: ${bucket.count} factura(s), ${money(bucket.amount)}`}>
+					<span className="text-xs text-muted">{bucket.label}</span>
+					<div className="flex items-center gap-2">
+						<div className="h-3 min-w-[2px] rounded-r bg-primary" style={{ width: `${(bucket.amount / max) * 70}%` }} />
+						<span className="whitespace-nowrap text-xs tabular-nums"><strong>{money(bucket.amount)}</strong> <span className="text-muted">· {bucket.count}</span></span>
+					</div>
+				</div>
+			))}
 		</div>
 	)
 }

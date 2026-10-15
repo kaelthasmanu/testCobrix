@@ -1,258 +1,121 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useAuth } from '../auth/AuthContext'
-import { authenticatedGet } from '../auth/api'
-import { DEFAULT_SETTINGS } from '../config/settings'
-import { runImport, runPaymentUpdate } from '../sync/service'
-import type { RunItem, RunType, SyncRun } from '../interfaces/sync.interfaces'
+import { Card, EmptyState, ErrorNotice, Loading, PageHead, Pagination, Pill } from '../components/ui'
+import type { Page, RunSummary, RunType, SettingsResponse } from '../interfaces/api.interfaces'
+import { RUN_TYPE_LABELS, dateTime } from '../lib/format'
+import { api, errorText } from '../lib/api'
+import { downloadRunHistoryPdf } from '../lib/runHistoryPdf'
+import { useSyncRunner } from '../lib/runner'
+import { queryString, usePage, useResource } from '../lib/useResource'
+import { ProviderMissing } from '../components/ProviderMissing'
 
-const resultLabels: Record<RunItem['result'], string> = {
-	imported: 'Importada',
-	already_imported: 'Ya importada',
-	excluded_status: 'Estado excluido',
-	outside_window: 'Fuera de ventana',
-	excluded_document: 'Documento excluido',
-	invalid_customer: 'Cliente inválido',
-	invalid_contract: 'Contrato inválido',
-	incoherent_currency: 'Moneda incoherente',
-	zero_balance: 'Saldo residual',
-	limit_reached: 'Frenada por tope',
-	paid: 'Marcada pagada',
-	partial_payment: 'Abono parcial',
-	no_evidence: 'Sin evidencia',
-}
-
-const runLabels: Record<RunType, string> = {
-	import: 'Importación',
-	payments: 'Actualización de pagadas',
-}
-
-const dateFormatter = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium', timeStyle: 'short' })
-const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
-const counterLabels: Record<string, string> = {
-	contractsScanned: 'Contratos recorridos',
-	installmentsEvaluated: 'Cuotas evaluadas',
-	customersCreated: 'Clientes creados',
-	customersExisting: 'Clientes existentes',
-	newInvoices: 'Facturas nuevas',
-	newAmount: 'Monto nuevo',
-	invoicesEvaluated: 'Facturas evaluadas',
-	paidInvoices: 'Facturas pagadas',
-	partialPayments: 'Abonos parciales',
-	noEvidence: 'Sin evidencia',
-}
-
-function formatDate(value: string): string {
-	return dateFormatter.format(new Date(value))
-}
-
-function summaryCounters(run: SyncRun): string {
-	return Object.entries(run.counters)
-		.map(([key, value]) => `${counterLabels[key] ?? key}: ${key === 'newAmount' ? money.format(value) : value}`)
-		.join(' · ')
-}
+const ACTIONS: ReadonlyArray<{ readonly type: RunType; readonly title: string; readonly description: string; readonly run: string; readonly simulate: string }> = [
+	{ type: 'import', title: 'Importar clientes y facturas', description: 'Recorre todos los contratos del administrador y crea una factura abierta por cada cuota pendiente que cumpla las reglas de Configuración. Lo ya importado no se repite.', run: 'Importar', simulate: 'Simular importación' },
+	{ type: 'payments', title: 'Actualizar facturas pagadas', description: 'Revisa cada factura abierta contra el libro de cuotas del administrador y marca pagadas las que el ISP cobró por completo. Un abono parcial se informa y la factura sigue abierta.', run: 'Actualizar pagadas', simulate: 'Simular actualización' },
+]
 
 export default function SynchronizationPage() {
-	const { session } = useAuth()
-	const [runs, setRuns] = useState<SyncRun[]>([])
-	const [running, setRunning] = useState<string | null>(null)
-	const [error, setError] = useState('')
-	const [expandedRun, setExpandedRun] = useState<string | null>(null)
+	const [filter, setFilter] = useState<RunType | 'all'>('all')
+	const [pageSize, setPageSize] = useState(20)
+	const [exporting, setExporting] = useState(false)
+	const [exportError, setExportError] = useState('')
+	const [page, setPage] = usePage({ filter, pageSize })
+	const { data, error, loading, reload } = useResource<Page<RunSummary>>(`/sync/runs${queryString({ type: filter === 'all' ? '' : filter, page, pageSize })}`)
+	const runs = data?.items ?? null
+	const runner = useSyncRunner()
+	const { data: settings } = useResource<SettingsResponse>('/settings')
+	const providerMissing = settings !== null && !(settings.provider.username && settings.provider.hasPassword)
+
+	async function exportHistory(): Promise<void> {
+		setExporting(true)
+		setExportError('')
+		try {
+			const allRuns: RunSummary[] = []
+			let exportPage = 1
+			let pageCount = 1
+			do {
+				const result = await api<Page<RunSummary>>(`/sync/runs${queryString({ type: filter === 'all' ? '' : filter, page: exportPage, pageSize: 100 })}`)
+				allRuns.push(...result.items)
+				pageCount = result.pageCount
+				exportPage += 1
+			} while (exportPage <= pageCount)
+			downloadRunHistoryPdf(allRuns, filter)
+		} catch (cause) {
+			setExportError(errorText(cause, 'No se pudo exportar el historial.'))
+		} finally {
+			setExporting(false)
+		}
+	}
 
 	useEffect(() => {
-		document.title = 'Sincronización · Prueba de facturación'
-		if (!session) return
-		void authenticatedGet<Array<Record<string, unknown>>>('/sync/runs', session.accessToken)
-			.then((rows) => setRuns(rows.map((row) => ({
-				id: String(row.id),
-				type: row.type as RunType,
-				simulation: Boolean(row.simulation),
-				status: row.status as SyncRun['status'],
-				startedAt: String(row.started_at),
-				finishedAt: String(row.finished_at),
-				summary: String(row.summary),
-				counters: (row.counters ?? {}) as Record<string, number>,
-				items: [],
-				error: typeof row.error === 'string' ? row.error : undefined,
-			}))))
-			.catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No se pudo cargar el historial.'))
-	}, [session])
-
-	async function execute(type: RunType, simulation: boolean) {
-		if (!session) return
-		if (!simulation) {
-			const action = type === 'import' ? 'importar clientes y facturas' : 'actualizar las facturas pagadas'
-			if (!window.confirm(`¿Confirmas que deseas ${action}? Esta acción escribirá cambios en Cobrix.`)) return
-		}
-		setRunning(type)
-		setError('')
-		try {
-			const result = type === 'import'
-				? await runImport(session.accessToken, DEFAULT_SETTINGS, simulation)
-				: await runPaymentUpdate(session.accessToken, simulation)
-			const run = result as unknown as SyncRun
-			setRuns((current) => [run, ...current])
-			setExpandedRun(run.id)
-		} catch (cause) {
-			const message = cause instanceof Error ? cause.message : 'La corrida falló.'
-			setError(message)
-		} finally {
-			setRunning(null)
-		}
-	}
-
-	if (!session) {
-		return (
-			<>
-				<div className="head"><div><h1>Sincronización</h1><p>Importa datos y actualiza las facturas pagadas.</p></div></div>
-				<section className="rounded-[10px] border border-line bg-surface p-5">
-					<p className="m-0 text-muted">Configura la conexión con el administrador para ejecutar corridas.</p>
-					<Link className="mt-4 inline-block rounded-md border border-primary bg-primary px-4 py-2 font-semibold !text-primary-fg hover:no-underline hover:opacity-90" to="/configuracion">Ir a configuración</Link>
-				</section>
-			</>
-		)
-	}
+		document.title = 'Sincronización · Cobrix'
+	}, [])
 
 	return (
 		<>
-			<div className="head">
-				<div>
-					<h1>Sincronización</h1>
-					<p>Importa clientes y facturas, y actualiza los pagos registrados por el proveedor.</p>
-				</div>
-			</div>
-			{error && <p className="flash bad" role="alert">{error}</p>}
+			<PageHead description="Trae los datos del administrador a Cobrix. Cada acción tiene su versión «Simular», que calcula todo sin escribir nada." title="Sincronización" />
+			{runner.dialog}
+			{providerMissing && <ProviderMissing />}
 			<div className="grid gap-4 lg:grid-cols-2">
-				<SyncActionCard
-					title="Importar clientes y facturas"
-					description="Recorre los contratos, aplica las reglas de Configuración y crea las facturas pendientes."
-					running={running !== null}
-					onRun={(simulation) => void execute('import', simulation)}
-				/>
-				<SyncActionCard
-					title="Actualizar facturas pagadas"
-					description="Compara las facturas abiertas con el libro de cuotas del administrador."
-					running={running !== null}
-					onRun={(simulation) => void execute('payments', simulation)}
-				/>
-			</div>
-			<section className="min-w-0 rounded-[10px] border border-line bg-surface">
-				<header className="border-b border-line px-4 py-3.5">
-					<h2>Historial de corridas</h2>
-					<p className="mb-0 mt-1 text-xs text-muted">Las últimas 50 corridas se conservan en este navegador.</p>
-				</header>
-				<div className="p-4">
-					{runs.length === 0 && <p className="py-8 text-center text-muted">Aún no hay corridas. Puedes simular una importación para revisar sus resultados.</p>}
-					{runs.length > 0 && (
-						<div className="overflow-x-auto">
-							<table className="w-full min-w-[900px] border-collapse">
-								<thead><tr><th>Tipo</th><th>Fecha</th><th>Modo</th><th>Estado</th><th>Resultado</th><th>Detalle</th></tr></thead>
-								<tbody>
-									{runs.map((run) => (
-										<RunRow expanded={expandedRun === run.id} key={run.id} onToggle={() => setExpandedRun(expandedRun === run.id ? null : run.id)} run={run} />
-									))}
-								</tbody>
-							</table>
+				{ACTIONS.map((action) => (
+					<Card key={action.type}>
+						<div className="grid h-full content-between gap-4 p-4">
+							<div>
+								<h2>{action.title}</h2>
+								<p className="mb-0 mt-1 text-sm text-muted">{action.description}</p>
+							</div>
+							<div className="flex flex-wrap gap-2">
+								<button className="btn primary" disabled={runner.running || providerMissing} onClick={() => runner.request(action.type, false)} type="button">{action.run}</button>
+								<button className="btn" disabled={runner.running || providerMissing} onClick={() => runner.request(action.type, true)} type="button">{action.simulate}</button>
+							</div>
 						</div>
-					)}
-				</div>
-			</section>
-		</>
-	)
-}
-
-function SyncActionCard({ title, description, running, onRun }: {
-	readonly title: string
-	readonly description: string
-	readonly running: boolean
-	readonly onRun: (simulation: boolean) => void
-}) {
-	return (
-		<section className="rounded-[10px] border border-line bg-surface p-4">
-			<h2>{title}</h2>
-			<p className="mt-1 text-sm text-muted">{description}</p>
-			<div className="mt-4 flex flex-wrap gap-2">
-				<button className="btn primary" disabled={running} onClick={() => onRun(false)} type="button">Ejecutar</button>
-				<button className="btn" disabled={running} onClick={() => onRun(true)} type="button">Simular</button>
+					</Card>
+				))}
 			</div>
-		</section>
-	)
-}
+			{runner.progressView}
+			{runner.error && <ErrorNotice message={runner.error} title="No se pudo ejecutar la corrida" />}
+			{exportError && <ErrorNotice message={exportError} onRetry={exportHistory} title="No se pudo exportar el historial" />}
 
-function RunRow({ run, expanded, onToggle }: { readonly run: SyncRun; readonly expanded: boolean; readonly onToggle: () => void }) {
-	const [resultFilter, setResultFilter] = useState<RunItem['result'] | 'all'>('all')
-	const [page, setPage] = useState(0)
-	const pageSize = 10
-	const filteredItems = useMemo(
-		() => resultFilter === 'all' ? run.items : run.items.filter((item) => item.result === resultFilter),
-		[resultFilter, run.items],
-	)
-	const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize))
-	const pageItems = filteredItems.slice(page * pageSize, (page + 1) * pageSize)
-	const updateFilter = (value: RunItem['result'] | 'all') => {
-		setResultFilter(value)
-		setPage(0)
-	}
-	return (
-		<>
-			<tr>
-				<td>{runLabels[run.type]}</td>
-				<td>{formatDate(run.startedAt)}</td>
-				<td><span className={`pill ${run.simulation ? 'info' : 'mute'}`}>{run.simulation ? 'Simulación' : 'Ejecución'}</span></td>
-				<td><span className={`pill ${run.status === 'completed' ? 'ok' : 'bad'}`}>{run.status === 'completed' ? 'Completada' : 'Falló'}</span></td>
-				<td>
-					<strong className="block">{run.summary}</strong>
-					<small className="text-muted">{summaryCounters(run)}</small>
-				</td>
-				<td><button className="btn small" onClick={onToggle} type="button">{expanded ? 'Ocultar' : 'Ver detalle'}</button></td>
-			</tr>
-			{expanded && (
-				<tr>
-					<td colSpan={6}>
-						<div className="grid gap-3">
-							{run.error && <p className="flash bad m-0">{run.error}</p>}
-							{run.items.length > 0 && (
-								<div className="flex flex-wrap items-center justify-between gap-3">
-									<label className="flex items-center gap-2 text-sm text-muted" htmlFor={`result-filter-${run.id}`}>
-										Filtrar resultado
-										<select className="rounded-md border border-line bg-surface px-2 py-1.5 text-fg" id={`result-filter-${run.id}`} onChange={(event) => updateFilter(event.target.value as RunItem['result'] | 'all')} value={resultFilter}>
-											<option value="all">Todos ({run.items.length})</option>
-											{Object.entries(resultLabels).filter(([result]) => run.items.some((item) => item.result === result)).map(([result, label]) => (
-												<option key={result} value={result}>{label}</option>
-											))}
-										</select>
-									</label>
-									<span className="text-xs text-muted">{filteredItems.length} resultado{filteredItems.length === 1 ? '' : 's'}</span>
-								</div>
-							)}
-							{run.items.length === 0 && !run.error && <p className="m-0 text-muted">La corrida no produjo filas de detalle.</p>}
-							{pageItems.length > 0 && (
-								<div className="overflow-x-auto">
-									<table className="w-full min-w-[720px] border-collapse">
-										<thead><tr><th>Cuota</th><th>Contrato</th><th>Cliente</th><th>Periodo</th><th>Resultado</th><th>Monto</th><th>Motivo</th></tr></thead>
-										<tbody>
-											{pageItems.map((item) => (
-												<tr key={`${run.id}-${item.id}`}>
-													<td className="mono">{item.id}</td><td>{item.contractId ?? '—'}</td><td>{item.customerDocument ?? '—'}</td><td>{item.period ?? '—'}</td><td><span className="pill info">{resultLabels[item.result]}</span></td><td>{item.amount === undefined ? '—' : money.format(item.amount)}</td><td>{item.reason}</td>
-												</tr>
-											))}
-										</tbody>
-									</table>
-								</div>
-							)}
-							{filteredItems.length > pageSize && (
-								<div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-sm">
-									<span className="text-muted">Página {page + 1} de {pageCount}</span>
-									<div className="flex gap-2">
-										<button className="btn" disabled={page === 0} onClick={() => setPage((current) => current - 1)} type="button">Anterior</button>
-										<button className="btn" disabled={page >= pageCount - 1} onClick={() => setPage((current) => current + 1)} type="button">Siguiente</button>
-									</div>
-								</div>
-							)}
-						</div>
-					</td>
-				</tr>
-			)}
+			<Card
+				actions={(
+					<div className="flex flex-wrap items-center gap-2">
+						<label className="flex items-center gap-2 text-sm text-muted" htmlFor="run-type-filter">Mostrar
+							<select className="!w-auto" id="run-type-filter" onChange={(event) => setFilter(event.target.value as RunType | 'all')} value={filter}>
+								<option value="all">Todas</option>
+								<option value="import">Importaciones</option>
+								<option value="payments">Actualizaciones de pagadas</option>
+							</select>
+						</label>
+						<button className="btn" disabled={exporting || !data} onClick={exportHistory} type="button">{exporting ? 'Generando PDF…' : 'Exportar PDF'}</button>
+					</div>
+				)}
+				detail="De la más reciente a la más vieja. Abre una corrida para ver sus contadores y una fila por cuota."
+				title="Historial de corridas"
+			>
+				{loading && !data && <Loading label="Cargando historial…" />}
+				{error && <div className="p-4"><ErrorNotice message={error} onRetry={reload} title="No se pudo cargar el historial" /></div>}
+				{runs && runs.length === 0 && <EmptyState title="Aún no hay corridas">Empieza con «Simular importación»: verás qué se importaría sin crear nada.</EmptyState>}
+				{runs && runs.length > 0 && (
+					<div className={`overflow-x-auto transition-opacity ${loading ? 'opacity-60' : ''}`}>
+						<table className="w-full min-w-[760px] border-collapse">
+							<thead><tr><th>Corrida</th><th>Fecha</th><th>Modo</th><th>Estado</th><th>Resumen</th><th aria-label="Acciones" /></tr></thead>
+							<tbody>
+								{runs.map((run) => (
+									<tr className="hover:bg-sunken" key={run.id}>
+										<td className="font-medium">{RUN_TYPE_LABELS[run.type]}{run.trigger === 'automatic' && <> <Pill tone="mute">Automática</Pill></>}</td>
+										<td className="whitespace-nowrap">{dateTime(run.startedAt)}</td>
+										<td><Pill tone={run.simulation ? 'info' : 'mute'}>{run.simulation ? 'Simulación' : 'Real'}</Pill></td>
+										<td><Pill tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'bad' : 'info'}>{run.status === 'completed' ? 'Completada' : run.status === 'failed' ? 'Falló' : 'En curso'}</Pill></td>
+										<td>{run.summary}{run.error && <span className="block text-xs text-[var(--bad)]">{run.error}</span>}</td>
+										<td><Link className="whitespace-nowrap" to={`/sincronizacion/${run.id}`}>Ver detalle</Link></td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				)}
+				{data && <Pagination noun="corridas" onPage={setPage} onPageSize={setPageSize} page={data.page} pageCount={data.pageCount} pageSize={data.pageSize} total={data.total} />}
+			</Card>
 		</>
 	)
 }

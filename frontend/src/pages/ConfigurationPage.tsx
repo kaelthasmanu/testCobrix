@@ -1,218 +1,223 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { useAuth } from '../auth/AuthContext'
-import { authenticatedGet, authenticatedRequest } from '../auth/api'
-import {
-	DOCUMENT_TYPES,
-	IMPORTABLE_CONTRACT_STATUSES,
-	IMPORT_WINDOWS,
-	DEFAULT_SETTINGS,
-	type DocumentType,
-	type ImportWindow,
-	type PanelSettings,
-	validateSettings,
-} from '../config/settings'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { api, errorText } from '../lib/api'
+import { Card, ErrorNotice, Loading, PageHead } from '../components/ui'
+import type { ImportWindow, PanelSettings, ProviderTestResult, ProviderView, SettingsResponse } from '../interfaces/api.interfaces'
+import { CONTRACT_STATUSES, DOCUMENT_TYPES, civilDate, timeZoneOptions } from '../lib/format'
+import { useCompanyTimeZone } from '../lib/companyTimeZone'
+import { useResource } from '../lib/useResource'
 
-const apiUrl = import.meta.env.VITE_API_URL ?? ''
+type Feedback = { readonly tone: 'ok' | 'bad'; readonly text: string } | null
 
-function formatExpiration(expiresAt: number): string {
-	return new Intl.DateTimeFormat('es-VE', {
-		dateStyle: 'medium',
-		timeStyle: 'short',
-		timeZone: 'America/Caracas',
-	}).format(expiresAt)
-}
+const COMPANY_FIELDS = ['companyName', 'companyRif', 'billingEmail', 'timeZone'] as const
+const RULE_FIELDS = ['importableStatuses', 'importWindow', 'recentInstallmentsLimit', 'graceDays', 'maxNewInvoices', 'maxNewAmount', 'excludedDocumentTypes'] as const
+const SCHEDULE_FIELDS = ['automaticRunEnabled', 'automaticRunTime'] as const
 
 function optionalNumber(value: string): number | null {
-	return value === '' ? null : Number(value)
+	return value.trim() === '' ? null : Number(value)
+}
+
+/** Las mismas reglas que valida el backend, para avisar antes de enviar. */
+export function validateSettings(settings: PanelSettings): string | null {
+	if (settings.billingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.billingEmail)) return 'El correo de cobranza no es válido.'
+	if (settings.companyRif && !/^[VEJGP]-?\d{6,9}-?\d?$/i.test(settings.companyRif)) return 'El RIF debe tener la forma J-12345678-9.'
+	if (settings.importableStatuses.length === 0) return 'Selecciona al menos un estado de contrato para importar.'
+	if (settings.recentInstallmentsLimit !== null && (!Number.isInteger(settings.recentInstallmentsLimit) || settings.recentInstallmentsLimit < 1 || settings.recentInstallmentsLimit > 60)) return 'El máximo de cuotas recientes debe ser un entero entre 1 y 60, o quedar vacío.'
+	if (!Number.isInteger(settings.graceDays) || settings.graceDays < 0 || settings.graceDays > 60) return 'Los días de gracia deben ser un entero entre 0 y 60.'
+	if (settings.maxNewInvoices !== null && (!Number.isInteger(settings.maxNewInvoices) || settings.maxNewInvoices < 1)) return 'El tope de facturas nuevas debe ser un entero mayor que cero, o quedar vacío.'
+	if (settings.maxNewAmount !== null && (!Number.isFinite(settings.maxNewAmount) || settings.maxNewAmount < 0)) return 'El tope de monto nuevo no puede ser negativo.'
+	if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(settings.automaticRunTime)) return 'La hora de la corrida automática no es válida.'
+	return null
 }
 
 export default function ConfigurationPage() {
-	const { session, authenticate, disconnect } = useAuth()
-	const [settings, setSettings] = useState<PanelSettings>(DEFAULT_SETTINGS)
-	const [userName, setUserName] = useState('')
-	const [password, setPassword] = useState('')
-	const [error, setError] = useState('')
-	const [success, setSuccess] = useState('')
-	const [isSubmitting, setIsSubmitting] = useState(false)
+	const { data, error, loading, reload } = useResource<SettingsResponse>('/settings')
 
 	useEffect(() => {
-		document.title = 'Configuración · Prueba de facturación'
-		if (!session) return
-		void authenticatedGet<PanelSettings>('/settings', session.accessToken)
-			.then(setSettings)
-			.catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No se pudo cargar la configuración.'))
-	}, [session])
+		document.title = 'Configuración · Cobrix'
+	}, [])
 
-	function updateSettings(patch: Partial<PanelSettings>) {
-		setSettings((current) => ({ ...current, ...patch }))
-	}
+	if (loading && !data) return <Loading label="Cargando configuración…" />
+	if (error || !data) return <ErrorNotice message={error || 'Sin datos.'} onRetry={reload} title="No se pudo cargar la configuración" />
+	return <ConfigurationForm initial={data} />
+}
 
-	function toggleStatus(status: PanelSettings['importableStatuses'][number]) {
-		const selected = settings.importableStatuses.includes(status)
-		const next = selected
-			? settings.importableStatuses.filter((item) => item !== status)
-			: [...settings.importableStatuses, status]
-		updateSettings({ importableStatuses: next })
-	}
+function ConfigurationForm({ initial }: { readonly initial: SettingsResponse }) {
+	const [settings, setSettings] = useState<PanelSettings>(initial)
+	const companyTimeZone = useCompanyTimeZone()
+	const [feedback, setFeedback] = useState<Record<string, Feedback>>(() => (companyTimeZone.notice ? { company: { tone: 'ok', text: companyTimeZone.notice } } : {}) as Record<string, Feedback>)
+	const update = (patch: Partial<PanelSettings>) => setSettings((current) => ({ ...current, ...patch }))
+	const toggle = (key: 'importableStatuses' | 'excludedDocumentTypes', value: string) => update({ [key]: settings[key].includes(value) ? settings[key].filter((item) => item !== value) : [...settings[key], value] })
 
-	function toggleDocumentType(documentType: DocumentType) {
-		const selected = settings.excludedDocumentTypes.includes(documentType)
-		const next = selected
-			? settings.excludedDocumentTypes.filter((item) => item !== documentType)
-			: [...settings.excludedDocumentTypes, documentType]
-		updateSettings({ excludedDocumentTypes: next })
-	}
-
-	async function handleSettingsSubmit(event: FormEvent<HTMLFormElement>) {
+	async function save(section: string, fields: readonly (keyof PanelSettings)[], event: FormEvent<HTMLFormElement>) {
 		event.preventDefault()
-		setError('')
-		setSuccess('')
-		const validationError = validateSettings(settings)
-		if (validationError) {
-			setError(validationError)
-			return
-		}
+		const invalid = validateSettings(settings)
+		if (invalid) return setFeedback({ [section]: { tone: 'bad', text: invalid } })
 		try {
-			if (!session) throw new Error('La sesión de Cobrix no está disponible.')
-			await authenticatedRequest('/settings', session.accessToken, { method: 'PATCH', body: JSON.stringify(settings) })
-			setSuccess('Configuración guardada correctamente.')
+			const patch = Object.fromEntries(fields.map((field) => [field, settings[field]]))
+			await api('/settings', { method: 'PATCH', body: JSON.stringify(patch) })
+			// Al cambiar la zona, todo el panel se vuelve a montar con ella para que ninguna fecha quede en la zona vieja.
+			if (section === 'company' && settings.timeZone !== companyTimeZone.timeZone) return companyTimeZone.setTimeZone(settings.timeZone, `Guardado. Las fechas, «hoy» y la corrida automática usan ahora ${settings.timeZone}.`)
+			setFeedback({ [section]: { tone: 'ok', text: 'Guardado. Se aplica desde la próxima corrida.' } })
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : 'No se pudo guardar la configuración.')
-		}
-	}
-
-	async function handleConnectionSubmit(event: FormEvent<HTMLFormElement>) {
-		event.preventDefault()
-		setError('')
-		setSuccess('')
-		setIsSubmitting(true)
-		try {
-			await authenticate({ user_name: userName.trim(), password })
-			setPassword('')
-			setSuccess('Conexión configurada correctamente.')
-		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : 'No se pudo configurar la conexión.')
-		} finally {
-			setIsSubmitting(false)
+			setFeedback({ [section]: { tone: 'bad', text: errorText(cause, 'No se pudo guardar.') } })
 		}
 	}
 
 	return (
 		<>
-			<div className="head">
-				<div>
-					<h1>Configuración</h1>
-					<p>Define la empresa, el proveedor y las reglas de importación.</p>
-				</div>
+			<PageHead description={<>Datos de la empresa, conexión con el proveedor y reglas de importación. Fecha de negocio: {civilDate(initial.businessDate)} ({initial.timeZone}).</>} title="Configuración" />
+
+			<div className="grid gap-5">
+				<Card title="Empresa">
+					<form className="grid gap-4 p-4 sm:grid-cols-2 sm:items-start lg:grid-cols-3" onSubmit={(event) => void save('company', COMPANY_FIELDS, event)}>
+						<label className="field" htmlFor="company-name">Nombre
+							<input id="company-name" maxLength={120} onChange={(event) => update({ companyName: event.target.value })} placeholder="Cobrix, C.A." value={settings.companyName} />
+						</label>
+						<label className="field" htmlFor="company-rif">RIF
+							<input id="company-rif" onChange={(event) => update({ companyRif: event.target.value.toUpperCase() })} placeholder="J-12345678-9" value={settings.companyRif} />
+						</label>
+						<label className="field" htmlFor="billing-email">Correo de cobranza
+							<input id="billing-email" onChange={(event) => update({ billingEmail: event.target.value })} placeholder="cobranza@empresa.com" type="email" value={settings.billingEmail} />
+						</label>
+						<label className="field" htmlFor="company-time-zone">Zona horaria
+							<select id="company-time-zone" onChange={(event) => update({ timeZone: event.target.value })} value={settings.timeZone}>
+								{timeZoneOptions(settings.timeZone).map((zone) => <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>)}
+							</select>
+							<small>Define «hoy», la ventana de importación, la hora de la corrida automática y cómo se muestran las fechas. Moneda: USD.</small>
+						</label>
+						<div className="sm:col-span-2 lg:col-span-3"><FormFooter feedback={feedback.company} label="Guardar empresa" /></div>
+					</form>
+				</Card>
+				<ProviderCard initial={initial.provider} />
 			</div>
 
-			<section className="min-w-0 rounded-[10px] border border-line bg-surface">
-				<header className="border-b border-line px-4 py-3.5"><h2>Empresa</h2></header>
-				<form className="grid gap-4 p-4 sm:grid-cols-2" onSubmit={handleSettingsSubmit}>
-					<label className="field" htmlFor="company-name">Nombre de la empresa
-						<input id="company-name" onChange={(event) => updateSettings({ companyName: event.target.value })} placeholder="Tu empresa" value={settings.companyName} />
-					</label>
-					<label className="field" htmlFor="company-rif">RIF
-						<input id="company-rif" onChange={(event) => updateSettings({ companyRif: event.target.value })} placeholder="J-00000000-0" value={settings.companyRif} />
-					</label>
-					<label className="field sm:col-span-2" htmlFor="billing-email">Correo de cobranza
-						<input id="billing-email" onChange={(event) => updateSettings({ billingEmail: event.target.value })} placeholder="cobranza@tuempresa.com" type="email" value={settings.billingEmail} />
-					</label>
-					<div className="sm:col-span-2"><button className="btn primary" type="submit">Guardar configuración</button></div>
-				</form>
-			</section>
-
-			<section className="min-w-0 rounded-[10px] border border-line bg-surface">
-				<header className="border-b border-line px-4 py-3.5"><h2>Proveedor</h2></header>
-				<div className="grid gap-4 p-4">
-					<p className="m-0 text-sm text-muted">Las credenciales solo se usan para obtener el token. La contraseña no se guarda en el navegador.</p>
-					<label className="field" htmlFor="api-url">URL de la API
-						<input className="bg-sunken text-muted" id="api-url" readOnly value={apiUrl} />
-					</label>
-					<form className="grid max-w-[720px] gap-4 sm:grid-cols-2" onSubmit={handleConnectionSubmit}>
-						<label className="field" htmlFor="config-user-name">Usuario
-							<input autoComplete="username" id="config-user-name" onChange={(event) => setUserName(event.target.value)} required value={userName} />
-						</label>
-						<label className="field" htmlFor="config-password">Contraseña
-							<input autoComplete="current-password" id="config-password" onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
-						</label>
-						<div className="flex items-end gap-2 sm:col-span-2">
-							<button className="btn primary" disabled={isSubmitting} type="submit">{isSubmitting ? 'Conectando…' : 'Probar conexión'}</button>
-							{session && <button className="btn" onClick={disconnect} type="button">Desconectar</button>}
-						</div>
-					</form>
-					{session && <div className="rounded-lg bg-sunken p-3 text-sm"><strong className="block">Conexión activa</strong><span className="text-muted">{session.usuario} · Token vigente hasta {formatExpiration(session.expiresAt)}</span></div>}
-				</div>
-			</section>
-
-			<section className="min-w-0 rounded-[10px] border border-line bg-surface">
-				<header className="border-b border-line px-4 py-3.5"><h2>Reglas de importación</h2></header>
-				<form className="grid gap-5 p-4" onSubmit={handleSettingsSubmit}>
+			<Card detail="Se aplican en cada importación, también en la simulación." title="Reglas de importación">
+				<form className="grid gap-5 p-4" onSubmit={(event) => void save('rules', RULE_FIELDS, event)}>
 					<fieldset>
 						<legend>Estados de contrato que se importan</legend>
-						<small className="basis-full text-muted">Por defecto se importan ACTIVO y CORTADO. Marca otros estados solo si deseas incluirlos.</small>
-						{IMPORTABLE_CONTRACT_STATUSES.map((status) => (
-							<label key={status}><input checked={settings.importableStatuses.includes(status)} onChange={() => toggleStatus(status)} type="checkbox" /> {status}</label>
-						))}
+						{CONTRACT_STATUSES.map((status) => <label key={status}><input checked={settings.importableStatuses.includes(status)} onChange={() => toggle('importableStatuses', status)} type="checkbox" /> {status}</label>)}
+						<small className="basis-full text-muted">Por defecto ACTIVO y CORTADO. Un estado que la API no documenta deja el contrato fuera siempre.</small>
 					</fieldset>
-					<div className="grid gap-4 sm:grid-cols-2">
+					<div className="grid gap-4 sm:grid-cols-3">
 						<label className="field" htmlFor="import-window">Ventana de importación
-							<select id="import-window" onChange={(event) => updateSettings({ importWindow: event.target.value as ImportWindow })} value={settings.importWindow}>
-								<option value={IMPORT_WINDOWS[0]}>Sin ventana</option>
-								<option value="3">Últimos 3 meses</option>
-								<option value="6">Últimos 6 meses</option>
-								<option value="9">Últimos 9 meses</option>
-								<option value="12">Últimos 12 meses</option>
+							<select id="import-window" onChange={(event) => update({ importWindow: event.target.value as ImportWindow })} value={settings.importWindow}>
+								<option value="none">Sin ventana</option>
+								{['3', '6', '9', '12'].map((months) => <option key={months} value={months}>Mes actual menos {months} meses</option>)}
 							</select>
-							<small>Solo se consideran cuotas desde el mes actual menos la ventana seleccionada.</small>
+							<small>Cuotas más viejas quedan fuera.</small>
 						</label>
 						<label className="field" htmlFor="recent-installments">Máximo de cuotas recientes por contrato
-							<input id="recent-installments" max="60" min="1" onChange={(event) => updateSettings({ recentInstallmentsLimit: optionalNumber(event.target.value) })} type="number" value={settings.recentInstallmentsLimit ?? ''} />
-							<small>Entre 1 y 60. Vacío significa todas.</small>
+							<input id="recent-installments" inputMode="numeric" max={60} min={1} onChange={(event) => update({ recentInstallmentsLimit: optionalNumber(event.target.value) })} placeholder="Todas" type="number" value={settings.recentInstallmentsLimit ?? ''} />
+							<small>1 a 60. Vacío = todas. Se conservan las más recientes.</small>
 						</label>
 						<label className="field" htmlFor="grace-days">Días de gracia
-							<input id="grace-days" max="60" min="0" onChange={(event) => updateSettings({ graceDays: Number(event.target.value) })} type="number" value={settings.graceDays} />
-							<small>Se suman a la fecha de vencimiento para calcular el corte.</small>
+							<input id="grace-days" inputMode="numeric" max={60} min={0} onChange={(event) => update({ graceDays: Number(event.target.value) })} type="number" value={settings.graceDays} />
+							<small>0 a 60. Corte = vencimiento + días de gracia.</small>
 						</label>
 					</div>
 					<fieldset>
 						<legend>Topes por corrida</legend>
-						<label className="field min-w-[220px]" htmlFor="max-new-invoices">Máximo de facturas nuevas
-							<input id="max-new-invoices" min="1" onChange={(event) => updateSettings({ maxNewInvoices: optionalNumber(event.target.value) })} type="number" value={settings.maxNewInvoices ?? ''} />
-							<small>Vacío significa sin tope.</small>
-						</label>
-						<label className="field min-w-[220px]" htmlFor="max-new-amount">Máximo de monto nuevo (USD)
-							<input id="max-new-amount" min="0" onChange={(event) => updateSettings({ maxNewAmount: optionalNumber(event.target.value) })} step="0.01" type="number" value={settings.maxNewAmount ?? ''} />
-							<small>Lo que exceda queda frenado.</small>
-						</label>
+						<div className="grid w-full gap-4 sm:grid-cols-2">
+							<label className="field" htmlFor="max-new-invoices">Máximo de facturas nuevas
+								<input id="max-new-invoices" inputMode="numeric" min={1} onChange={(event) => update({ maxNewInvoices: optionalNumber(event.target.value) })} placeholder="Sin tope" type="number" value={settings.maxNewInvoices ?? ''} />
+							</label>
+							<label className="field" htmlFor="max-new-amount">Máximo de monto nuevo (USD)
+								<input id="max-new-amount" inputMode="decimal" min={0} onChange={(event) => update({ maxNewAmount: optionalNumber(event.target.value) })} placeholder="Sin tope" step="0.01" type="number" value={settings.maxNewAmount ?? ''} />
+							</label>
+						</div>
+						<small className="basis-full text-muted">Lo que exceda queda frenado, no se importa, y se intenta otra vez en la próxima corrida.</small>
 					</fieldset>
 					<fieldset>
 						<legend>Excluir titulares por tipo de documento</legend>
-						{DOCUMENT_TYPES.map((documentType) => (
-							<label key={documentType}><input checked={settings.excludedDocumentTypes.includes(documentType)} onChange={() => toggleDocumentType(documentType)} type="checkbox" /> {documentType}</label>
-						))}
-						<small className="basis-full text-muted">J y G corresponden a personas jurídicas; V, E y P a personas naturales.</small>
+						{DOCUMENT_TYPES.map((type) => <label key={type}><input checked={settings.excludedDocumentTypes.includes(type)} onChange={() => toggle('excludedDocumentTypes', type)} type="checkbox" /> {type}</label>)}
+						<small className="basis-full text-muted">J y G son personas jurídicas; V, E y P, naturales.</small>
 					</fieldset>
-					<div><button className="btn primary" type="submit">Guardar reglas</button></div>
+					<FormFooter feedback={feedback.rules} label="Guardar reglas" />
 				</form>
-			</section>
+			</Card>
 
-			<section className="min-w-0 rounded-[10px] border border-line bg-surface">
-				<header className="border-b border-line px-4 py-3.5"><h2>Corrida automática</h2></header>
-				<form className="grid gap-4 p-4 sm:grid-cols-[auto_180px_1fr] sm:items-end" onSubmit={handleSettingsSubmit}>
+			<Card title={<span id="corrida-automatica">Corrida automática</span>}>
+				<form className="grid gap-4 p-4 sm:grid-cols-[auto_180px_minmax(0,1fr)] sm:items-end" onSubmit={(event) => void save('schedule', SCHEDULE_FIELDS, event)}>
 					<label className="inline-flex items-center gap-2 font-semibold" htmlFor="automatic-run">
-						<input checked={settings.automaticRunEnabled} id="automatic-run" onChange={(event) => updateSettings({ automaticRunEnabled: event.target.checked })} type="checkbox" />
-						Activar corrida diaria
+						<input checked={settings.automaticRunEnabled} id="automatic-run" onChange={(event) => update({ automaticRunEnabled: event.target.checked })} type="checkbox" />
+						Correr todos los días
 					</label>
-					<label className="field" htmlFor="automatic-run-time">Hora (America/Caracas)
-						<input id="automatic-run-time" onChange={(event) => updateSettings({ automaticRunTime: event.target.value })} type="time" value={settings.automaticRunTime} />
+					<label className="field" htmlFor="automatic-run-time">Hora ({settings.timeZone})
+						<input disabled={!settings.automaticRunEnabled} id="automatic-run-time" onChange={(event) => update({ automaticRunTime: event.target.value })} type="time" value={settings.automaticRunTime} />
 					</label>
-					<p className="m-0 text-sm text-muted">Ejecuta Importar y después Actualizar pagadas. Esta preferencia queda guardada para el orquestador de corridas.</p>
-					<div><button className="btn primary" type="submit">Guardar programación</button></div>
+					<p className="m-0 text-sm text-muted">El backend importa y después actualiza pagadas. Si estaba apagado a esa hora, se pone al día en las dos horas siguientes.</p>
+					<div className="sm:col-span-3"><FormFooter feedback={feedback.schedule} label="Guardar programación" /></div>
 				</form>
-			</section>
-			{error && <p className="flash bad" role="alert">{error}</p>}
-			{success && <p className="flash ok" role="status">{success}</p>}
+			</Card>
 		</>
 	)
+}
+
+function ProviderCard({ initial }: { readonly initial: ProviderView }) {
+	const [baseUrl, setBaseUrl] = useState(initial.baseUrl)
+	const [username, setUsername] = useState(initial.username)
+	const [password, setPassword] = useState('')
+	const [hasPassword, setHasPassword] = useState(initial.hasPassword)
+	const [busy, setBusy] = useState<'test' | 'save' | null>(null)
+	const [feedback, setFeedback] = useState<Feedback>(null)
+
+	async function run(action: 'test' | 'save') {
+		setBusy(action)
+		setFeedback(null)
+		const body = JSON.stringify({ baseUrl: baseUrl.trim(), username: username.trim(), ...(password ? { password } : {}) })
+		try {
+			if (action === 'test') {
+				const result = await api<ProviderTestResult>('/settings/provider/test', { method: 'POST', body })
+				setFeedback({ tone: 'ok', text: `Conexión correcta como ${result.usuario}: el administrador tiene ${result.contracts} contratos.` })
+			} else {
+				const saved = await api<ProviderView>('/settings/provider', { method: 'PUT', body })
+				setPassword('')
+				setHasPassword(saved.hasPassword)
+				setFeedback({ tone: 'ok', text: 'Proveedor guardado. Las próximas corridas usarán estos datos.' })
+			}
+		} catch (cause) {
+			setFeedback({ tone: 'bad', text: errorText(cause, 'No se pudo conectar con el administrador.') })
+		} finally {
+			setBusy(null)
+		}
+	}
+
+	return (
+		<Card detail="El administrador de facturas del ISP" title="Proveedor">
+			<form className="grid gap-4 p-4" onSubmit={(event) => { event.preventDefault(); void run('save') }}>
+				<div className="grid gap-4 sm:grid-cols-2 sm:items-start lg:grid-cols-3">
+					<label className="field sm:col-span-2 lg:col-span-1" htmlFor="provider-url">URL de la API
+						<input id="provider-url" onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://127.0.0.1:4310/api/v1" required type="url" value={baseUrl} />
+					</label>
+					<label className="field" htmlFor="provider-user">Usuario
+						<input autoComplete="off" id="provider-user" onChange={(event) => setUsername(event.target.value)} placeholder="cobrix" required value={username} />
+					</label>
+					<label className="field" htmlFor="provider-password">Contraseña
+						<input autoComplete="new-password" id="provider-password" onChange={(event) => setPassword(event.target.value)} placeholder={hasPassword ? '•••••••• (guardada)' : ''} type="password" value={password} />
+						<small>{hasPassword ? 'No se muestra. Déjala vacía para conservarla.' : 'Obligatoria la primera vez.'}</small>
+					</label>
+				</div>
+				<div className="grid gap-3">
+					<div className="flex flex-wrap gap-2">
+						<button className="btn" disabled={busy !== null} onClick={() => void run('test')} type="button">{busy === 'test' ? 'Probando…' : 'Probar conexión'}</button>
+						<button className="btn primary" disabled={busy !== null} type="submit">{busy === 'save' ? 'Verificando…' : 'Guardar proveedor'}</button>
+					</div>
+					{feedback && <FeedbackMessage feedback={feedback} />}
+				</div>
+			</form>
+		</Card>
+	)
+}
+
+function FormFooter({ feedback, label }: { readonly feedback: Feedback | undefined; readonly label: string }): ReactNode {
+	return (
+		<div className="grid gap-3">
+			<div><button className="btn primary" type="submit">{label}</button></div>
+			{feedback && <FeedbackMessage feedback={feedback} />}
+		</div>
+	)
+}
+
+function FeedbackMessage({ feedback }: { readonly feedback: NonNullable<Feedback> }) {
+	return <p className={`flash ${feedback.tone} m-0`} role={feedback.tone === 'bad' ? 'alert' : 'status'}>{feedback.text}</p>
 }

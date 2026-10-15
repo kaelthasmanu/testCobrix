@@ -3,32 +3,39 @@
 	"version": "1.0.0",
 	"private": true,
 	"scripts": {
+		"setup": "prisma generate --schema prisma/schema.prisma && prisma migrate deploy --schema prisma/schema.prisma",
 		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+		"prestart:dev": "prisma migrate deploy --schema prisma/schema.prisma",
+		"start:dev": "tsc -p tsconfig.json && (tsc -p tsconfig.json --watch --preserveWatchOutput & node --watch dist/main.js)",
+		"prestart": "prisma migrate deploy --schema prisma/schema.prisma",
+		"start": "node dist/main.js",
 		"prisma:generate": "prisma generate --schema prisma/schema.prisma",
 		"prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
-		"prisma:push": "prisma db push --schema prisma/schema.prisma",
-		"start:dev": "tsx watch src/main.ts",
-		"start": "node dist/main.js",
-		"test": "npm run build && node --test test/**/*.test.js"
+		"prisma:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+		"test": "npm run build && node --import tsx --test --test-concurrency=1 test/*.test.ts",
+		"test:unit": "node --import tsx --test test/rules.test.ts"
 	},
 	"dependencies": {
 		"@nestjs/common": "^11.0.0",
 		"@nestjs/config": "^4.0.0",
 		"@nestjs/core": "^11.0.0",
-		"@nestjs/jwt": "^11.0.0",
 		"@nestjs/platform-express": "^11.0.0",
 		"@nestjs/schedule": "^6.0.1",
 		"@nestjs/swagger": "^11.2.0",
 		"@prisma/client": "^6.16.2",
 		"class-transformer": "^0.5.1",
 		"class-validator": "^0.14.1",
+		"prisma": "^6.16.2",
 		"reflect-metadata": "^0.2.2",
 		"rxjs": "^7.8.2"
 	},
 	"devDependencies": {
 		"@types/node": "^24.3.0",
-		"prisma": "^6.16.2",
 		"tsx": "^4.19.4",
 		"typescript": "^5.9.2"
+	},
+	"engines": {
+		"node": ">=24"
 	}
 }

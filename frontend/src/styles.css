@@ -92,12 +92,15 @@ h2 {
 	font-size: 16px;
 }
 
-th,
-td {
-	border-bottom: 1px solid var(--line);
-	padding: 9px 12px;
-	text-align: left;
-	vertical-align: top;
+/* En la capa base para que las utilidades (text-right en columnas numéricas) puedan sobrescribirla. */
+@layer base {
+	th,
+	td {
+		border-bottom: 1px solid var(--line);
+		padding: 9px 12px;
+		text-align: left;
+		vertical-align: top;
+	}
 }
 
 th {

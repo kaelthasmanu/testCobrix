@@ -12,17 +12,19 @@ model AppSetting {
   value String
 }
 
+/// Conexión con el administrador de facturas. Una sola fila (id = 1).
 model ProviderAuth {
-  id              Int    @id
-  username        String
+  id                Int     @id
+  baseUrl           String?
+  username          String
   encryptedPassword String
-  accessToken     String?
-  tokenExpiresAt  String?
+  accessToken       String?
+  tokenExpiresAt    String?
 }
 
 model Client {
-  id        Int      @id @default(autoincrement())
-  document  String   @unique
+  id        Int             @id @default(autoincrement())
+  document  String          @unique
   name      String
   email     String?
   phone     String?
@@ -34,42 +36,49 @@ model Client {
 }
 
 model Contract {
-  id         Int      @id @default(autoincrement())
-  providerId Int      @unique
+  id         Int       @id @default(autoincrement())
+  providerId Int       @unique
   clientId   Int
   status     String
   plan       String?
-  price      Float    @default(0)
+  price      Float     @default(0)
+  currency   String?
   branch     String?
   updatedAt  String
-  client     Client   @relation(fields: [clientId], references: [id])
+  client     Client    @relation(fields: [clientId], references: [id])
   invoices   Invoice[]
 }
 
+/// Una factura de Cobrix por cuota pendiente del administrador. `externalId` es el `deuda_id`.
 model Invoice {
-  id               Int      @id @default(autoincrement())
-  externalId       String   @unique
-  contractId       Int
-  clientId         Int
-  customerDocument String
-  customerName     String
-  period           String
-  dueDate          String
-  cutoffDate       String
-  amount           Float
-  balance          Float
-  status           String
-  importedAt       String
-  paidAt           String?
-  contract         Contract @relation(fields: [contractId], references: [id])
-  client           Client   @relation(fields: [clientId], references: [id])
-  events           CustomerEvent[]
+  id                          Int             @id @default(autoincrement())
+  externalId                  String          @unique
+  contractId                  Int
+  clientId                    Int
+  customerDocument            String
+  customerName                String
+  period                      String
+  dueDate                     String
+  cutoffDate                  String
+  amount                      Float
+  balance                     Float
+  /// Último saldo de la cuota visto en el libro del administrador (abonos parciales).
+  providerBalance             Float?
+  status                      String
+  importedAt                  String
+  paidAt                      String?
+  paidByProviderInvoiceId     Int?
+  paidByProviderInvoiceNumber String?
+  contract                    Contract        @relation(fields: [contractId], references: [id])
+  client                      Client          @relation(fields: [clientId], references: [id])
+  events                      CustomerEvent[]
 }
 
 model SyncRun {
-  id         String @id
+  id         String        @id
   type       String
   simulation Boolean
+  trigger    String        @default("manual")
   status     String
   startedAt  String
   finishedAt String
@@ -79,17 +88,26 @@ model SyncRun {
   items      SyncRunItem[]
 }
 
+model SyncLock {
+  key        String @id
+  runId      String
+  acquiredAt String
+}
+
 model SyncRunItem {
-  id               Int      @id @default(autoincrement())
+  id               Int     @id @default(autoincrement())
   runId            String
+  /// `deuda_id` de la cuota; nulo cuando el resultado es de todo el contrato.
   externalId       String?
   contractId       Int?
   customerDocument String?
+  customerName     String?
   period           String?
   result           String
   reason           String
   amount           Float?
-  run              SyncRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  detail           String?
+  run              SyncRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 }
 
 model CustomerEvent {
@@ -99,6 +117,7 @@ model CustomerEvent {
   occurredAt  String
   description String
   invoiceId   Int?
+  reference   String?
   client      Client   @relation(fields: [clientId], references: [id])
   invoice     Invoice? @relation(fields: [invoiceId], references: [id])
 }

@@ -9,9 +9,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppModule = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
-const auth_module_1 = require("./auth/auth.module");
 const common_module_1 = require("./common/common.module");
 const database_module_1 = require("./database/database.module");
+const health_controller_1 = require("./health/health.controller");
 const settings_module_1 = require("./settings/settings.module");
 const sync_module_1 = require("./sync/sync.module");
 const scheduler_module_1 = require("./scheduler/scheduler.module");
@@ -20,6 +20,7 @@ let AppModule = class AppModule {
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
-        imports: [config_1.ConfigModule.forRoot({ isGlobal: true }), common_module_1.CommonModule, database_module_1.DatabaseModule, auth_module_1.AuthModule, settings_module_1.SettingsModule, sync_module_1.SyncModule, scheduler_module_1.SchedulerModule],
+        imports: [config_1.ConfigModule.forRoot({ isGlobal: true }), common_module_1.CommonModule, database_module_1.DatabaseModule, settings_module_1.SettingsModule, sync_module_1.SyncModule, scheduler_module_1.SchedulerModule],
+        controllers: [health_controller_1.HealthController],
     })
 ], AppModule);

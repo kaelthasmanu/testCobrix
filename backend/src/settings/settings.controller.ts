@@ -1,28 +1,40 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common'
-import { AuthGuard } from '../auth/auth.guard'
+import { Body, Controller, Get, Inject, Patch, Post, Put } from '@nestjs/common'
+import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { ProviderClient } from '../provider/provider.client'
 import { SettingsService } from './settings.service'
+import { ProviderConnectionDto, UpdateSettingsDto } from './settings.dto'
 
 @Controller('settings')
-@UseGuards(AuthGuard)
+@ApiTags('Configuración')
 export class SettingsController {
-	constructor(private readonly settings: SettingsService, private readonly provider: ProviderClient) {}
+	constructor(@Inject(SettingsService) private readonly settings: SettingsService, @Inject(ProviderClient) private readonly provider: ProviderClient) {}
 
 	@Get()
+	@ApiOperation({ summary: 'Configuración operativa y datos del proveedor (sin la contraseña)' })
 	async get() {
-		return this.settings.get()
+		return { ...(await this.settings.get()), provider: await this.provider.getSettingsView(), businessDate: await this.settings.today() }
 	}
 
 	@Patch()
-	async save(@Body() body: Record<string, unknown>) {
+	@ApiOperation({ summary: 'Actualizar empresa, reglas de importación o corrida automática' })
+	async save(@Body() body: UpdateSettingsDto) {
 		return this.settings.save(body)
 	}
 
-	@Post('test-connection')
-	async testConnection(@Body() body: { user_name?: string; password?: string }) {
-		if (!body.user_name || !body.password) return { connected: false, error: 'Usuario y contraseña son obligatorios.' }
-		const login = await this.provider.login(body.user_name, body.password)
-		await this.provider.saveCredentials(body.user_name, body.password, login)
-		return { connected: true, usuario: login.usuario, email: login.email, expiresAt: login.access_token_expires_in }
+	@Post('provider/test')
+	@ApiOperation({ summary: 'Probar conexión: inicia sesión y cuenta los contratos. No guarda nada.' })
+	async testProvider(@Body() body: ProviderConnectionDto) {
+		const connection = await this.provider.resolveConnection(body)
+		const result = await this.provider.probe(connection)
+		return { connected: true, baseUrl: connection.baseUrl, ...result }
+	}
+
+	@Put('provider')
+	@ApiOperation({ summary: 'Guardar URL y credenciales del proveedor tras verificarlas' })
+	async saveProvider(@Body() body: ProviderConnectionDto) {
+		const connection = await this.provider.resolveConnection(body)
+		const login = await this.provider.login(connection)
+		await this.provider.saveConnection(connection, login)
+		return this.provider.getSettingsView()
 	}
 }

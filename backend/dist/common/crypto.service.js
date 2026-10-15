@@ -8,6 +8,9 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CryptoService = void 0;
 const common_1 = require("@nestjs/common");
@@ -16,7 +19,7 @@ const node_crypto_1 = require("node:crypto");
 let CryptoService = class CryptoService {
     key;
     constructor(config) {
-        this.key = (0, node_crypto_1.createHash)('sha256').update(config.get('ENCRYPTION_KEY', config.get('JWT_SECRET', 'development-only-secret'))).digest();
+        this.key = (0, node_crypto_1.createHash)('sha256').update(config.get('ENCRYPTION_KEY', 'development-only-key')).digest();
     }
     encrypt(value) {
         const iv = (0, node_crypto_1.randomBytes)(12);
@@ -34,5 +37,6 @@ let CryptoService = class CryptoService {
 exports.CryptoService = CryptoService;
 exports.CryptoService = CryptoService = __decorate([
     (0, common_1.Injectable)(),
+    __param(0, (0, common_1.Inject)(config_1.ConfigService)),
     __metadata("design:paramtypes", [config_1.ConfigService])
 ], CryptoService);
