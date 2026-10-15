@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { loadSettings } from '../config/settings'
+import { authenticatedGet } from '../auth/api'
+import { DEFAULT_SETTINGS } from '../config/settings'
 import { runImport, runPaymentUpdate } from '../sync/service'
-import { loadRuns, saveRun, type RunItem, type RunType, type SyncRun } from '../sync/storage'
+import type { RunItem, RunType, SyncRun } from '../interfaces/sync.interfaces'
 
 const resultLabels: Record<RunItem['result'], string> = {
 	imported: 'Importada',
@@ -53,14 +54,29 @@ function summaryCounters(run: SyncRun): string {
 
 export default function SynchronizationPage() {
 	const { session } = useAuth()
-	const [runs, setRuns] = useState<SyncRun[]>(loadRuns)
+	const [runs, setRuns] = useState<SyncRun[]>([])
 	const [running, setRunning] = useState<string | null>(null)
 	const [error, setError] = useState('')
 	const [expandedRun, setExpandedRun] = useState<string | null>(null)
 
 	useEffect(() => {
 		document.title = 'Sincronización · Prueba de facturación'
-	}, [])
+		if (!session) return
+		void authenticatedGet<Array<Record<string, unknown>>>('/sync/runs', session.accessToken)
+			.then((rows) => setRuns(rows.map((row) => ({
+				id: String(row.id),
+				type: row.type as RunType,
+				simulation: Boolean(row.simulation),
+				status: row.status as SyncRun['status'],
+				startedAt: String(row.started_at),
+				finishedAt: String(row.finished_at),
+				summary: String(row.summary),
+				counters: (row.counters ?? {}) as Record<string, number>,
+				items: [],
+				error: typeof row.error === 'string' ? row.error : undefined,
+			}))))
+			.catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No se pudo cargar el historial.'))
+	}, [session])
 
 	async function execute(type: RunType, simulation: boolean) {
 		if (!session) return
@@ -68,45 +84,17 @@ export default function SynchronizationPage() {
 			const action = type === 'import' ? 'importar clientes y facturas' : 'actualizar las facturas pagadas'
 			if (!window.confirm(`¿Confirmas que deseas ${action}? Esta acción escribirá cambios en Cobrix.`)) return
 		}
-		const startedAt = new Date().toISOString()
-		const id = `${type}-${startedAt}`
-		setRunning(id)
+		setRunning(type)
 		setError('')
 		try {
 			const result = type === 'import'
-				? await runImport(session.accessToken, loadSettings(), simulation)
+				? await runImport(session.accessToken, DEFAULT_SETTINGS, simulation)
 				: await runPaymentUpdate(session.accessToken, simulation)
-			const run: SyncRun = {
-				id,
-				type,
-				simulation,
-				status: 'completed',
-				startedAt,
-				finishedAt: new Date().toISOString(),
-				summary: result.summary,
-				counters: result.counters,
-				items: result.items,
-			}
-			saveRun(run)
-			setRuns(loadRuns())
-			setExpandedRun(id)
+			const run = result as unknown as SyncRun
+			setRuns((current) => [run, ...current])
+			setExpandedRun(run.id)
 		} catch (cause) {
 			const message = cause instanceof Error ? cause.message : 'La corrida falló.'
-			const failedRun: SyncRun = {
-				id,
-				type,
-				simulation,
-				status: 'failed',
-				startedAt,
-				finishedAt: new Date().toISOString(),
-				summary: 'La corrida falló antes de completar.',
-				counters: {},
-				items: [],
-				error: message,
-			}
-			saveRun(failedRun)
-			setRuns(loadRuns())
-			setExpandedRun(id)
 			setError(message)
 		} finally {
 			setRunning(null)

@@ -4,6 +4,9 @@
 	"private": true,
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
+		"prisma:generate": "prisma generate --schema prisma/schema.prisma",
+		"prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+		"prisma:push": "prisma db push --schema prisma/schema.prisma",
 		"start:dev": "tsx watch src/main.ts",
 		"start": "node dist/main.js",
 		"test": "npm run build && node --test test/**/*.test.js"
@@ -15,6 +18,7 @@
 		"@nestjs/jwt": "^11.0.0",
 		"@nestjs/platform-express": "^11.0.0",
 		"@nestjs/schedule": "^6.0.1",
+		"@nestjs/swagger": "^11.2.0",
 		"@prisma/client": "^6.16.2",
 		"class-transformer": "^0.5.1",
 		"class-validator": "^0.14.1",
