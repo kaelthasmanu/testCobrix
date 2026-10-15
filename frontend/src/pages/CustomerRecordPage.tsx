@@ -1,21 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { authenticatedGet } from '../auth/api'
 import { useAuth } from '../auth/AuthContext'
-import type { ContractRow, Customer } from '../interfaces/CustomerRecordPage.interfaces'
-import { loadInvoices, loadRuns, type StoredInvoice, type SyncRun } from '../sync/storage'
+import type { Contract, Customer } from '../interfaces/CustomerRecordPage.interfaces'
+import type { StoredInvoice } from '../interfaces/sync.interfaces'
 
 const money = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' })
 const dateTime = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Caracas' })
 const dateOnly = new Intl.DateTimeFormat('es-VE', { dateStyle: 'medium', timeZone: 'America/Caracas' })
-
-function normalizeDocument(value: string | undefined): string | null {
-	if (!value) return null
-	const normalized = value.toUpperCase().replaceAll(/[\s-]/g, '')
-	const match = normalized.match(/^([VEJGP]?)(\d{6,12})$/)
-	if (!match) return null
-	return `${match[1]}${match[2].replace(/^0+(?=\d)/, '')}`
-}
 
 function formatDate(value: string | undefined, withTime = false): string {
 	if (!value) return '—'
@@ -33,50 +25,65 @@ function statusClass(status: StoredInvoice['status'] | string): string {
 	return 'pill bad'
 }
 
-async function loadCustomer(accessToken: string, document: string): Promise<Customer> {
-	const idsResponse = await authenticatedGet<{ readonly data?: readonly number[] }>('/isp/lista_ids_contratos', accessToken)
-	const normalizedDocument = normalizeDocument(document)
-	const rows = (await Promise.all((idsResponse.data ?? []).map((id) =>
-		authenticatedGet<unknown[]>(`/isp/contrato/individual?id_contrato=${id}`, accessToken),
-	))).flat().filter((row): row is ContractRow => typeof row === 'object' && row !== null)
+interface CustomerEvent {
+	readonly id: number
+	readonly type: 'paid' | 'imported' | 'created'
+	readonly date: string
+	readonly title: string
+	readonly description: string
+}
 
-	const matchingRows = rows.filter((row) => normalizeDocument(row.identificacion_contrato) === normalizedDocument)
-	if (matchingRows.length === 0) throw new Error('No se encontró el cliente en el administrador.')
-	const contracts = [...new Map(matchingRows
-		.filter((row) => Number(row.contrato_id) > 0)
-		.map((row) => [row.contrato_id, {
-			id: Number(row.contrato_id),
-			status: row.estado ?? 'Desconocido',
-			plan: row.nombre_plan ?? 'Sin plan',
-			price: Number(row.precio_servicio) || 0,
-			branch: row.sigla_sucursal || row.nombre_sucursal || '—',
-		}])).values()]
-	const first = matchingRows[0]
+interface CustomerRecord {
+	readonly customer: Customer
+	readonly invoices: readonly StoredInvoice[]
+	readonly events: readonly CustomerEvent[]
+}
+
+async function loadCustomer(accessToken: string, document: string): Promise<CustomerRecord> {
+	const response = await authenticatedGet<{
+		readonly client: { name: string; document: string; email?: string | null; phone?: string | null }
+		readonly contracts: readonly { provider_id: number; status: string; plan?: string | null; price: number; branch?: string | null }[]
+		readonly invoices: readonly { id: number; external_id: string; customer_document: string; customer_name: string; contract_id: number; period: string; due_date: string; cutoff_date: string; amount: number; balance: number; status: 'open' | 'paid'; imported_at: string; paid_at?: string | null }[]
+		readonly events: readonly { id: number; type: string; occurred_at: string; description: string }[]
+	}>(`/clients/${encodeURIComponent(document)}`, accessToken)
 	return {
-		name: first.nombre_contrato ?? 'Sin nombre',
-		document: first.identificacion_contrato ?? document,
-		email: first.email?.toLowerCase() ?? '—',
-		phone: first.telefono ?? '—',
-		contracts,
+		customer: {
+			name: response.client.name,
+			document: response.client.document,
+			email: response.client.email ?? '—',
+			phone: response.client.phone ?? '—',
+			contracts: response.contracts.map((contract): Contract => ({ id: contract.provider_id, status: contract.status, plan: contract.plan ?? 'Sin plan', price: contract.price, branch: contract.branch ?? '—' })),
+		},
+		invoices: response.invoices.map((invoice) => ({
+			id: invoice.external_id,
+			contractId: invoice.contract_id,
+			customerDocument: invoice.customer_document,
+			customerName: invoice.customer_name,
+			period: invoice.period,
+			dueDate: invoice.due_date,
+			cutoffDate: invoice.cutoff_date,
+			amount: invoice.amount,
+			balance: invoice.balance,
+			status: invoice.status,
+			importedAt: invoice.imported_at,
+			paidAt: invoice.paid_at ?? undefined,
+		})),
+		events: response.events.map((event) => ({
+			id: event.id,
+			type: event.type === 'invoice_paid' ? 'paid' : event.type === 'invoice_imported' ? 'imported' : 'created',
+			date: event.occurred_at,
+			title: event.type === 'invoice_paid' ? 'Pagada en el ISP' : event.type === 'invoice_imported' ? 'Factura importada' : 'Cliente creado',
+			description: event.description,
+		})),
 	}
-}
-
-function customerInvoices(invoices: readonly StoredInvoice[], customer: Customer): StoredInvoice[] {
-	const document = normalizeDocument(customer.document)
-	return invoices
-		.filter((invoice) => normalizeDocument(invoice.customerDocument) === document)
-		.sort((left, right) => right.period.localeCompare(left.period))
-}
-
-function matchingRuns(runs: readonly SyncRun[], customer: Customer): SyncRun[] {
-	const document = normalizeDocument(customer.document)
-	return runs.filter((run) => run.items.some((item) => normalizeDocument(item.customerDocument) === document))
 }
 
 export default function CustomerRecordPage() {
 	const { customerId } = useParams()
 	const { session } = useAuth()
 	const [customer, setCustomer] = useState<Customer | null>(null)
+	const [invoices, setInvoices] = useState<readonly StoredInvoice[]>([])
+	const [events, setEvents] = useState<readonly CustomerEvent[]>([])
 	const [error, setError] = useState('')
 	const [isLoading, setIsLoading] = useState(true)
 
@@ -90,7 +97,11 @@ export default function CustomerRecordPage() {
 		const customerDocument = decodeURIComponent(customerId)
 		void loadCustomer(session.accessToken, customerDocument)
 			.then((loaded) => {
-				if (!cancelled) setCustomer(loaded)
+				if (!cancelled) {
+					setCustomer(loaded.customer)
+					setInvoices(loaded.invoices)
+					setEvents(loaded.events)
+				}
 			})
 			.catch((cause: unknown) => {
 				if (!cancelled) setError(cause instanceof Error ? cause.message : 'No se pudo cargar el expediente.')
@@ -103,48 +114,9 @@ export default function CustomerRecordPage() {
 		}
 	}, [customerId, session])
 
-	const invoices = useMemo(() => customer ? customerInvoices(loadInvoices(), customer) : [], [customer])
-	const runs = useMemo(() => customer ? matchingRuns(loadRuns(), customer) : [], [customer])
 	const openAmount = invoices.filter((invoice) => invoice.status === 'open').reduce((total, invoice) => total + invoice.balance, 0)
 	const paidCount = invoices.filter((invoice) => invoice.status === 'paid').length
 	const importedAt = invoices.length > 0 ? invoices.reduce((oldest, invoice) => invoice.importedAt < oldest ? invoice.importedAt : oldest, invoices[0].importedAt) : undefined
-	const events = useMemo(() => {
-		if (!customer) return []
-		const document = normalizeDocument(customer.document)
-		const importedEvents = invoices.map((invoice) => ({
-			id: `imported-${invoice.id}`,
-			date: invoice.importedAt,
-			title: `Factura importada · ${invoiceNumber(invoice.id)}`,
-			description: `Cuota ${invoice.id} · ${invoice.period}`,
-			type: 'imported',
-		}))
-		const paidEvents = invoices.filter((invoice) => invoice.status === 'paid').map((invoice) => ({
-			id: `paid-${invoice.id}`,
-			date: invoice.paidAt ?? invoice.importedAt,
-			title: `Pagada en el ISP · ${invoiceNumber(invoice.id)}`,
-			description: `Cuota ${invoice.id} · ${invoice.period}`,
-			type: 'paid',
-		}))
-		const created = importedAt ? [{
-			id: 'created',
-			date: importedAt,
-			title: 'Cliente creado',
-			description: `Cliente creado desde el contrato del administrador`,
-			type: 'created',
-		}] : []
-		const runEvents = runs.flatMap((run) => run.items
-			.filter((item) => normalizeDocument(item.customerDocument) === document && item.result === 'paid')
-			.map((item) => ({
-				id: `run-paid-${run.id}-${item.id}`,
-				date: run.finishedAt,
-				title: `Pagada en el ISP · ${invoiceNumber(item.id)}`,
-				description: item.reason,
-				type: 'paid',
-			})))
-		return [...created, ...importedEvents, ...paidEvents, ...runEvents]
-			.sort((left, right) => right.date.localeCompare(left.date))
-			.filter((event, index, all) => all.findIndex((candidate) => candidate.id === event.id) === index)
-	}, [customer, importedAt, invoices, runs])
 
 	if (!session) return <section className="rounded-[10px] border border-line bg-surface p-5">Configura la conexión con el administrador en <Link to="/configuracion">Configuración</Link>.</section>
 	if (isLoading) return <p className="text-muted">Cargando expediente…</p>

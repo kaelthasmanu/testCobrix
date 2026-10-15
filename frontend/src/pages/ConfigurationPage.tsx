@@ -1,12 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
-import { authenticatedRequest } from '../auth/api'
+import { authenticatedGet, authenticatedRequest } from '../auth/api'
 import {
 	DOCUMENT_TYPES,
 	IMPORTABLE_CONTRACT_STATUSES,
 	IMPORT_WINDOWS,
-	loadSettings,
-	saveSettings,
+	DEFAULT_SETTINGS,
 	type DocumentType,
 	type ImportWindow,
 	type PanelSettings,
@@ -29,7 +28,7 @@ function optionalNumber(value: string): number | null {
 
 export default function ConfigurationPage() {
 	const { session, authenticate, disconnect } = useAuth()
-	const [settings, setSettings] = useState<PanelSettings>(loadSettings)
+	const [settings, setSettings] = useState<PanelSettings>(DEFAULT_SETTINGS)
 	const [userName, setUserName] = useState('')
 	const [password, setPassword] = useState('')
 	const [error, setError] = useState('')
@@ -38,7 +37,11 @@ export default function ConfigurationPage() {
 
 	useEffect(() => {
 		document.title = 'Configuración · Prueba de facturación'
-	}, [])
+		if (!session) return
+		void authenticatedGet<PanelSettings>('/settings', session.accessToken)
+			.then(setSettings)
+			.catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No se pudo cargar la configuración.'))
+	}, [session])
 
 	function updateSettings(patch: Partial<PanelSettings>) {
 		setSettings((current) => ({ ...current, ...patch }))
@@ -70,8 +73,8 @@ export default function ConfigurationPage() {
 			return
 		}
 		try {
-			if (session) await authenticatedRequest('/settings', session.accessToken, { method: 'PATCH', body: JSON.stringify(settings) })
-			saveSettings(settings)
+			if (!session) throw new Error('La sesión de Cobrix no está disponible.')
+			await authenticatedRequest('/settings', session.accessToken, { method: 'PATCH', body: JSON.stringify(settings) })
 			setSuccess('Configuración guardada correctamente.')
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : 'No se pudo guardar la configuración.')
