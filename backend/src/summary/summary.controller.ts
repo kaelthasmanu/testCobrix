@@ -5,7 +5,7 @@ import { ProviderClient } from '../provider/provider.client'
 import { SettingsService } from '../settings/settings.service'
 import { SyncService } from '../sync/sync.service'
 import { addDays, roundMoney, usd, zonedParts, zonedTimeToUtc } from '../common/rules'
-import { cobrixInvoiceNumber } from '../clients/clients.controller'
+import { cobrixInvoiceNumber } from '../clients/clients.service'
 
 type Severity = 'bad' | 'warn' | 'info'
 interface Alert { readonly id: string; readonly severity: Severity; readonly title: string; readonly detail: string; readonly link?: string; readonly items?: readonly string[] }
