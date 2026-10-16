@@ -5,7 +5,6 @@
  *
  * The provided database was generated for 2026-10-13. That date is pinned by default so
  * the acceptance numbers in docs/ENUNCIADO.md hold; set SANDBOX_TODAY to change it.
- * @deprecated web migrated to react 
  */
 
 import { existsSync } from 'node:fs'

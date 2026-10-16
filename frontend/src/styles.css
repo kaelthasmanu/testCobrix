@@ -1,0 +1,283 @@
+@import "tailwindcss";
+
+:root {
+	color-scheme: dark;
+	--bg: #0f131a;
+	--surface: #161b24;
+	--sunken: #1c2230;
+	--fg: #e5e9f0;
+	--muted: #98a3b3;
+	--line: #2a3242;
+	--primary: #8d9bff;
+	--primary-soft: #232a4d;
+	--primary-fg: #0f131a;
+	--ok: #6fd69a;
+	--ok-bg: #173826;
+	--warn: #f1c26b;
+	--warn-bg: #3a2c12;
+	--bad: #f59a90;
+	--bad-bg: #42201c;
+	--info: #9cbcf5;
+	--info-bg: #1c2b47;
+	--mute: #98a3b3;
+	--mute-bg: #232a36;
+	font-family: "Inter var", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:root[data-theme="light"] {
+	color-scheme: light;
+	--bg: #f5f6f8;
+	--surface: #fff;
+	--sunken: #eef0f3;
+	--fg: #18202b;
+	--muted: #5f6b7a;
+	--line: #dde1e7;
+	--primary: #3b4cca;
+	--primary-soft: #e8ebfb;
+	--primary-fg: #fff;
+	--ok: #17703f;
+	--ok-bg: #def3e6;
+	--warn: #8a5300;
+	--warn-bg: #fbedd3;
+	--bad: #b42318;
+	--bad-bg: #fbe1de;
+	--info: #2b5aa8;
+	--info-bg: #e0eafa;
+	--mute: #5f6b7a;
+	--mute-bg: #eceff3;
+}
+
+@theme inline {
+	--color-bg: var(--bg);
+	--color-surface: var(--surface);
+	--color-sunken: var(--sunken);
+	--color-fg: var(--fg);
+	--color-muted: var(--muted);
+	--color-line: var(--line);
+	--color-primary: var(--primary);
+	--color-primary-soft: var(--primary-soft);
+	--color-primary-fg: var(--primary-fg);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+a {
+	color: var(--primary);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+h1 {
+	margin: 0;
+	font-size: 22px;
+}
+
+h2 {
+	margin: 0;
+	font-size: 16px;
+}
+
+/* En la capa base para que las utilidades (text-right en columnas numéricas) puedan sobrescribirla. */
+@layer base {
+	th,
+	td {
+		border-bottom: 1px solid var(--line);
+		padding: 9px 12px;
+		text-align: left;
+		vertical-align: top;
+	}
+}
+
+th {
+	background: var(--sunken);
+	color: var(--muted);
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+tr:last-child td {
+	border-bottom: 0;
+}
+
+label.field {
+	display: grid;
+	gap: 5px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+label.field small {
+	color: var(--muted);
+	font-size: 12px;
+	font-weight: 400;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+	width: 100%;
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--surface);
+	color: var(--fg);
+	font: inherit;
+	font-weight: 400;
+	padding: 7px 10px;
+	outline: none;
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+fieldset {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	margin: 0;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 10px 14px;
+}
+
+fieldset legend {
+	padding: 0 4px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+fieldset label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13.5px;
+}
+
+dl.facts {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: 6px 16px;
+	margin: 0;
+}
+
+dl.facts dt {
+	color: var(--muted);
+}
+
+dl.facts dd {
+	margin: 0;
+}
+
+.btn {
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--surface);
+	color: var(--fg);
+	cursor: pointer;
+	font: 600 13.5px inherit;
+	padding: 7px 14px;
+}
+
+.btn:hover {
+	background: var(--sunken);
+}
+
+.btn.primary {
+	border-color: var(--primary);
+	background: var(--primary);
+	color: var(--primary-fg);
+}
+
+.btn:disabled {
+	cursor: wait;
+	opacity: 0.6;
+}
+
+.head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: end;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.head p {
+	margin: 4px 0 0;
+	color: var(--muted);
+}
+
+.pill {
+	display: inline-block;
+	border-radius: 999px;
+	padding: 1px 9px;
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.pill.ok,
+.flash.ok {
+	background: var(--ok-bg);
+	color: var(--ok);
+}
+
+.pill.warn,
+.flash.warn {
+	background: var(--warn-bg);
+	color: var(--warn);
+}
+
+.pill.bad,
+.flash.bad {
+	background: var(--bad-bg);
+	color: var(--bad);
+}
+
+.pill.info,
+.flash.info {
+	background: var(--info-bg);
+	color: var(--info);
+}
+
+.pill.mute {
+	background: var(--mute-bg);
+	color: var(--mute);
+}
+
+.flash {
+	border-radius: 8px;
+	padding: 10px 14px;
+	font-weight: 500;
+}
+
+.mono {
+	font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	font-size: 12.5px;
+}
+
+a:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+@media (max-width: 860px) {
+	.head {
+		align-items: start;
+	}
+}

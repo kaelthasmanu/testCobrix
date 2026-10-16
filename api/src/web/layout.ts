@@ -1,7 +1,6 @@
 /**
  * Base of the panel skeleton: layout, menu, styles and small helpers (escaping, money,
  * dates, status pills). Use them, replace them or bring your own stack.
- * @deprecated web migrated to react 
  */
 
 export const esc = (value: unknown): string =>
