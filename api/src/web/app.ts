@@ -4,7 +4,6 @@
  *
  * Replace these placeholders with your implementation, or build the panel with your own
  * stack and keep this file only as a reference of the screens.
- * @deprecated web migrated to react 
  */
 
 import { readFileSync } from 'node:fs'
