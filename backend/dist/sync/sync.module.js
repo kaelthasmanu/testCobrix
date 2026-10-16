@@ -12,6 +12,7 @@ const clients_controller_1 = require("../clients/clients.controller");
 const summary_controller_1 = require("../summary/summary.controller");
 const provider_module_1 = require("../provider/provider.module");
 const settings_module_1 = require("../settings/settings.module");
+const clients_service_1 = require("../clients/clients.service");
 const sync_controller_1 = require("./sync.controller");
 const sync_service_1 = require("./sync.service");
 let SyncModule = class SyncModule {
@@ -21,7 +22,7 @@ exports.SyncModule = SyncModule = __decorate([
     (0, common_1.Module)({
         imports: [provider_module_1.ProviderModule, settings_module_1.SettingsModule],
         controllers: [sync_controller_1.SyncController, clients_controller_1.ClientsController, summary_controller_1.SummaryController],
-        providers: [sync_service_1.SyncService],
+        providers: [sync_service_1.SyncService, clients_service_1.ClientsService],
         exports: [sync_service_1.SyncService],
     })
 ], SyncModule);
