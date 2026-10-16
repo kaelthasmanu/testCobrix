@@ -34,7 +34,7 @@ export function PanelLayout({ children }: { readonly children: ReactNode }) {
 					))}
 				</nav>
 			</aside>
-			<main className="grid min-w-0 content-start gap-5 px-4 pb-[60px] pt-4 md:max-w-[1280px] md:px-7 md:pt-6">
+			<main className="grid min-w-0 content-start gap-5 px-4 pb-[60px] pt-4 md:px-7 md:pt-6">
 				{children}
 			</main>
 		</div>
