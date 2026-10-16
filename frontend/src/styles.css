@@ -1,6 +1,30 @@
 @import "tailwindcss";
 
 :root {
+	color-scheme: dark;
+	--bg: #0f131a;
+	--surface: #161b24;
+	--sunken: #1c2230;
+	--fg: #e5e9f0;
+	--muted: #98a3b3;
+	--line: #2a3242;
+	--primary: #8d9bff;
+	--primary-soft: #232a4d;
+	--primary-fg: #0f131a;
+	--ok: #6fd69a;
+	--ok-bg: #173826;
+	--warn: #f1c26b;
+	--warn-bg: #3a2c12;
+	--bad: #f59a90;
+	--bad-bg: #42201c;
+	--info: #9cbcf5;
+	--info-bg: #1c2b47;
+	--mute: #98a3b3;
+	--mute-bg: #232a36;
+	font-family: "Inter var", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:root[data-theme="light"] {
 	color-scheme: light;
 	--bg: #f5f6f8;
 	--surface: #fff;
@@ -21,7 +45,6 @@
 	--info-bg: #e0eafa;
 	--mute: #5f6b7a;
 	--mute-bg: #eceff3;
-	font-family: "Inter var", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @theme inline {
@@ -34,31 +57,6 @@
 	--color-primary: var(--primary);
 	--color-primary-soft: var(--primary-soft);
 	--color-primary-fg: var(--primary-fg);
-}
-
-@media (prefers-color-scheme: dark) {
-	:root {
-		color-scheme: dark;
-		--bg: #0f131a;
-		--surface: #161b24;
-		--sunken: #1c2230;
-		--fg: #e5e9f0;
-		--muted: #98a3b3;
-		--line: #2a3242;
-		--primary: #8d9bff;
-		--primary-soft: #232a4d;
-		--primary-fg: #0f131a;
-		--ok: #6fd69a;
-		--ok-bg: #173826;
-		--warn: #f1c26b;
-		--warn-bg: #3a2c12;
-		--bad: #f59a90;
-		--bad-bg: #42201c;
-		--info: #9cbcf5;
-		--info-bg: #1c2b47;
-		--mute: #98a3b3;
-		--mute-bg: #232a36;
-	}
 }
 
 * {
