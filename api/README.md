@@ -23,18 +23,6 @@ Credenciales de la API: usuario `cobrix`, contraseña `cobrix-sandbox`.
 
 Al levantarlo, el panel muestra cada pantalla con «Por implementar» y la lista de lo que debe hacer. Para crear pagos del lado del ISP, usa la sección «Simulador» del Swagger.
 
-## Panel React
-
-La migración del panel a React, TypeScript, Vite y Tailwind está en [`web/`](web/). Para ejecutarla de forma independiente:
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-Vite sirve el panel en http://localhost:5173. La API y el Swagger siguen ejecutándose con el entorno principal.
-
 ![Panel al empezar](docs/capturas/00-esqueleto-resumen.png)
 
 El enunciado incluye una **referencia de layout** (§3.7): qué va en cada pantalla. El diseño UI/UX es tuyo; puedes usar shadcn/ui, Tailwind o lo que prefieras.
