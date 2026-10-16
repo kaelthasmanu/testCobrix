@@ -4,7 +4,7 @@ import { dateTime, RUN_TYPE_LABELS } from './format.ts'
 const PAGE_WIDTH = 612
 const PAGE_HEIGHT = 792
 const MARGIN = 48
-const TABLE_TOP = 650
+const TABLE_TOP = 612
 const TABLE_BOTTOM = 54
 const TABLE_HEADER_HEIGHT = 26
 const ROW_HEIGHT = 42
@@ -54,6 +54,20 @@ function tableRowHeight(row: readonly string[]): number {
 	return Math.max(ROW_HEIGHT, summaryLines.length * 11 + CELL_PADDING * 2)
 }
 
+function attentionSummary(runs: readonly RunSummary[]): string {
+	const failed = runs.filter((run) => run.status === 'failed').length
+	const running = runs.filter((run) => run.status === 'running').length
+	if (failed > 0) return `Atención: ${failed} corrida(s) fallaron. Revisa el motivo antes de volver a ejecutar.`
+	if (running > 0) return `Atención: ${running} corrida(s) siguen en curso.`
+	return 'Sin alertas: no hay corridas fallidas ni ejecuciones pendientes.'
+}
+
+function attentionColor(runs: readonly RunSummary[]): string {
+	if (runs.some((run) => run.status === 'failed')) return '0.98 0.88 0.86'
+	if (runs.some((run) => run.status === 'running')) return '0.99 0.94 0.82'
+	return '0.88 0.95 0.90'
+}
+
 function splitPages(rows: readonly string[][]): string[][][] {
 	const pages: string[][][] = []
 	let page: string[][] = []
@@ -76,7 +90,7 @@ function textCommand(value: string, x: number, y: number, font = '/F1', size = 9
 	return `BT\n${font} ${size} Tf\n${x} ${y} Td\n(${pdfText(value)}) Tj\nET`
 }
 
-function contentStream(rows: readonly string[][], pageNumber: number, pageCount: number, totalCount: number, filterLabel: string, generatedAt: string): string {
+function contentStream(rows: readonly string[][], pageNumber: number, pageCount: number, totalCount: number, allRuns: readonly RunSummary[], filterLabel: string, generatedAt: string): string {
 	const commands = [
 		'0.12 0.16 0.22 rg',
 		textCommand('Historial de corridas', MARGIN, 736, '/F2', 20),
@@ -89,6 +103,10 @@ function contentStream(rows: readonly string[][], pageNumber: number, pageCount:
 		textCommand(`Filtro aplicado: ${filterLabel}`, MARGIN + 8, 685, '/F1', 9),
 		textCommand(`Generado: ${generatedAt}`, MARGIN + 185, 685, '/F1', 9),
 		textCommand(`Total: ${totalCount} ${totalCount === 1 ? 'corrida' : 'corridas'}`, MARGIN + 420, 685, '/F1', 9),
+		attentionColor(allRuns),
+		`${MARGIN} 642 ${TABLE_WIDTH} 24 re f`,
+		'0.12 0.16 0.22 rg',
+		textCommand(attentionSummary(allRuns), MARGIN + 8, 651, '/F1', 9),
 		'0.12 0.16 0.22 rg',
 	]
 
@@ -143,7 +161,7 @@ export function createRunHistoryPdf(runs: readonly RunSummary[], filter: RunType
 	pages.forEach((page, index) => {
 		const pageObject = 3 + index * 2
 		const contentObject = pageObject + 1
-		const content = contentStream(page, index + 1, pages.length, runs.length, filterLabel, generatedAt)
+		const content = contentStream(page, index + 1, pages.length, runs.length, runs, filterLabel, generatedAt)
 		objects.set(pageObject, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 ${fontObject} 0 R /F2 ${fontObject + 1} 0 R >> >> /Contents ${contentObject} 0 R >>`)
 		objects.set(contentObject, `<< /Length ${encodePdf(content).length} >>\nstream\n${content}\nendstream`)
 	})

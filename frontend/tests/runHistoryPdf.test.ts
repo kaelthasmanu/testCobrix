@@ -22,6 +22,7 @@ describe('PDF del historial de corridas', () => {
 
 		assert.match(pdf, /^%PDF-1\.4/)
 		assert.match(pdf, /Filtro aplicado: Importacion/)
+		assert.match(pdf, /Sin alertas: no hay corridas fallidas ni ejecuciones pendientes\./)
 		assert.match(pdf, /Se importaron 42 facturas\./)
 		assert.match(pdf, /%%EOF/)
 	})
