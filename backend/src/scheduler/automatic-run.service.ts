@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
 import { DatabaseService } from '../database/database.service'
 import { zonedParts } from '../common/rules'
@@ -16,9 +16,9 @@ export class AutomaticRunService {
 	private running = false
 
 	constructor(
-		@Inject(SettingsService) private readonly settings: SettingsService,
-		@Inject(SyncService) private readonly sync: SyncService,
-		@Inject(DatabaseService) private readonly database: DatabaseService,
+		private readonly settings: SettingsService,
+		private readonly sync: SyncService,
+		private readonly database: DatabaseService,
 	) {}
 
 	@Cron(CronExpression.EVERY_MINUTE, { name: 'cobrix-daily-sync' })

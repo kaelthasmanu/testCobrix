@@ -1,11 +1,11 @@
-import { Controller, Get, Inject } from '@nestjs/common'
+import { Controller, Get } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { DatabaseService } from '../database/database.service'
 
 @Controller('health')
 @ApiTags('Salud')
 export class HealthController {
-	constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+	constructor(private readonly database: DatabaseService) {}
 
 	@Get()
 	@ApiOperation({ summary: 'Comprueba que el backend y su base respondan' })

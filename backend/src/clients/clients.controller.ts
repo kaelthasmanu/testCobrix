@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Param, Query } from '@nestjs/common'
+import { Controller, Get, Param, Query } from '@nestjs/common'
 import { ApiOperation, ApiPropertyOptional, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator'
 import { PageQueryDto } from '../common/pagination'
@@ -19,7 +19,7 @@ export class RecordPageQueryDto extends PageQueryDto {
 @Controller('clients')
 @ApiTags('Clientes')
 export class ClientsController {
-	constructor(@Inject(ClientsService) private readonly clients: ClientsService) {}
+	constructor(private readonly clients: ClientsService) {}
 
 	@Get()
 	@ApiOperation({ summary: 'Clientes importados, paginados, con búsqueda por nombre, cédula o RIF, filtros y orden' })

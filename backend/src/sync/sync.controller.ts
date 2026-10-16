@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, NotFoundException, Param, Post, Query } from '@nestjs/common'
+import { Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { SyncService } from './sync.service'
 import { RunItemQueryDto, RunQueryDto, SyncQueryDto } from './sync.dto'
@@ -7,7 +7,7 @@ import { pageWindow, toPage } from '../common/pagination'
 @Controller('sync')
 @ApiTags('Sincronización')
 export class SyncController {
-	constructor(@Inject(SyncService) private readonly sync: SyncService) {}
+	constructor(private readonly sync: SyncService) {}
 
 	@Post('import')
 	@ApiOperation({ summary: 'Importar clientes y facturas (o simularlo con simulation=true)' })

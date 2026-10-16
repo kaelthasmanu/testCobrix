@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import { ConflictException, Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { DatabaseService } from '../database/database.service'
@@ -32,9 +32,9 @@ export class SyncService implements OnModuleInit {
 	private progress: RunProgress | null = null
 
 	constructor(
-		@Inject(DatabaseService) private readonly database: DatabaseService,
-		@Inject(ProviderClient) private readonly provider: ProviderClient,
-		@Inject(SettingsService) private readonly settingsService: SettingsService,
+		private readonly database: DatabaseService,
+		private readonly provider: ProviderClient,
+		private readonly settingsService: SettingsService,
 	) {}
 
 	/** Si el proceso se reinició a mitad de una corrida, esa corrida queda como fallida y se libera el bloqueo. */

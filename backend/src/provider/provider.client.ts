@@ -1,4 +1,4 @@
-import { BadGatewayException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common'
+import { BadGatewayException, HttpException, HttpStatus, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { DatabaseService } from '../database/database.service'
 import { CryptoService } from '../common/crypto.service'
@@ -24,7 +24,7 @@ export class ProviderClient {
 	private readonly timeoutMs: number
 	private readonly retryDelays: readonly number[]
 
-	constructor(@Inject(ConfigService) config: ConfigService, @Inject(DatabaseService) private readonly database: DatabaseService, @Inject(CryptoService) private readonly crypto: CryptoService) {
+	constructor(config: ConfigService, private readonly database: DatabaseService, private readonly crypto: CryptoService) {
 		this.defaultBaseUrl = normalizeBaseUrl(config.get<string>('ADMIN_API_URL', 'http://127.0.0.1:4310/api/v1'))
 		this.timeoutMs = Math.max(1000, Number(config.get<string>('ADMIN_API_TIMEOUT_MS', '10000')))
 		this.retryDelays = config.get<string>('ADMIN_API_RETRIES') === '0' ? [] : RETRY_DELAYS_MS

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Patch, Post, Put } from '@nestjs/common'
+import { Body, Controller, Get, Patch, Post, Put } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { ProviderClient } from '../provider/provider.client'
 import { SettingsService } from './settings.service'
@@ -7,7 +7,7 @@ import { ProviderConnectionDto, UpdateSettingsDto } from './settings.dto'
 @Controller('settings')
 @ApiTags('Configuración')
 export class SettingsController {
-	constructor(@Inject(SettingsService) private readonly settings: SettingsService, @Inject(ProviderClient) private readonly provider: ProviderClient) {}
+	constructor(private readonly settings: SettingsService, private readonly provider: ProviderClient) {}
 
 	@Get()
 	@ApiOperation({ summary: 'Configuración operativa y datos del proveedor (sin la contraseña)' })

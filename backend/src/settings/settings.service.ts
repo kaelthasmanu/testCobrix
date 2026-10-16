@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { DatabaseService } from '../database/database.service'
 import { DEFAULT_TIME_ZONE, businessToday, isValidTimeZone } from '../common/rules'
@@ -7,7 +7,7 @@ import type { PanelSettings } from '../common/types'
 
 @Injectable()
 export class SettingsService {
-	constructor(@Inject(DatabaseService) private readonly database: DatabaseService, @Inject(ConfigService) private readonly config: ConfigService) {}
+	constructor(private readonly database: DatabaseService, private readonly config: ConfigService) {}
 
 	async get(): Promise<PanelSettings> {
 		const rows = await this.database.appSetting.findMany()
