@@ -20,7 +20,7 @@ const provider_client_1 = require("../provider/provider.client");
 const settings_service_1 = require("../settings/settings.service");
 const sync_service_1 = require("../sync/sync.service");
 const rules_1 = require("../common/rules");
-const clients_controller_1 = require("../clients/clients.controller");
+const clients_service_1 = require("../clients/clients.service");
 const AGING_BUCKETS = [
     { key: 'current', label: 'Del mes / por vencer', max: 0 },
     { key: 'd30', label: '1 a 30 días', max: 30 },
@@ -91,7 +91,7 @@ let SummaryController = class SummaryController {
         }
         const partial = open.filter((invoice) => invoice.providerBalance !== null && invoice.providerBalance > 0 && invoice.providerBalance < invoice.balance - 0.005);
         if (partial.length > 0) {
-            alerts.push({ id: 'partial', severity: 'info', title: `${partial.length} abono(s) parcial(es) en el ISP`, detail: 'El cliente pagó una parte; la factura sigue abierta por el saldo importado.', link: '/clientes', items: partial.slice(0, 5).map((invoice) => `${invoice.customerName} · ${(0, clients_controller_1.cobrixInvoiceNumber)(invoice.id)} (cuota ${invoice.externalId}): queda ${(0, rules_1.usd)(invoice.providerBalance ?? 0)} de ${(0, rules_1.usd)(invoice.balance)}`) });
+            alerts.push({ id: 'partial', severity: 'info', title: `${partial.length} abono(s) parcial(es) en el ISP`, detail: 'El cliente pagó una parte; la factura sigue abierta por el saldo importado.', link: '/clientes', items: partial.slice(0, 5).map((invoice) => `${invoice.customerName} · ${(0, clients_service_1.cobrixInvoiceNumber)(invoice.id)} (cuota ${invoice.externalId}): queda ${(0, rules_1.usd)(invoice.providerBalance ?? 0)} de ${(0, rules_1.usd)(invoice.balance)}`) });
         }
         const lastImport = recentRuns.find((run) => run.type === 'import' && run.status === 'completed');
         if (lastImport) {
