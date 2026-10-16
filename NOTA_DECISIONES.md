@@ -40,6 +40,7 @@
 3. Corridas en una cola (por ejemplo BullMQ) con reintento por contrato y progreso enviado al panel con SSE en lugar de consultas periódicas.
 4. Avisos fuera del panel (correo o webhook) cuando una corrida automática falla o aparecen contratos con respuestas contradictorias.
 5. PostgreSQL y varios proveedores por empresa.
+6. Redis como capa complementaria para producción: cachear por pocos segundos el resumen y las consultas de lectura más repetidas del panel, guardar temporalmente el progreso de corridas y usar locks distribuidos si el backend escala a varias instancias. No reemplazaría SQLite/PostgreSQL ni sería la fuente de verdad del historial, clientes o facturas; cada corrida que escriba datos tendría que invalidar las claves relacionadas y el cache tendría TTL corto para evitar mostrar saldos o estados obsoletos. Para la primera versión no es imprescindible porque el panel ya pagina las consultas y la carga esperada es baja.
 
 ## Punto diferencial
 
