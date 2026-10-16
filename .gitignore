@@ -3,3 +3,4 @@ data/*.sqlite-wal
 data/*.sqlite-shm
 *.log
 .DS_Store
+.env
