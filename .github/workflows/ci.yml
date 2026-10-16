@@ -19,6 +19,7 @@ jobs:
             frontend/package-lock.json
       - run: npm ci --prefix backend
       - run: npm ci --prefix frontend
+      - run: npm run prisma:generate --prefix backend
       - run: npm run typecheck --prefix backend
       - run: npm test --prefix backend
       - run: npm run typecheck --prefix frontend
