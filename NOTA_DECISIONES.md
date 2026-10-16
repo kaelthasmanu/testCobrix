@@ -2,10 +2,9 @@
 
 ## Stack
 
-- **Backend: NestJS, Prisma y SQLite.** Cobrix necesita su propia base: el enunciado pide que guarde clientes, facturas e historial y que solo hable con el administrador por HTTP. SQLite no necesita servidor, así que la prueba se levanta con un comando. Prisma da migraciones versionadas y Nest da inyección de dependencias, validación de DTOs, Swagger y `@nestjs/schedule` para la corrida diaria.
-- **Panel: React, Vite y Tailwind.** Tailwind con tokens de color propios (claro y oscuro) en lugar de una librería de componentes, porque el panel es chico y así controlo la densidad de las tablas.
-- **Paginación en el servidor.** Un ISP real puede tener miles de clientes y una corrida miles de filas, así que ninguna tabla trae todo: clientes, historial de corridas, filas de una corrida y facturas e historial del expediente se piden de a una página (máximo 100 filas). La búsqueda, los filtros y el orden los resuelve el backend; la tabla de clientes usa una sola consulta SQL agregada (deuda, facturas abiertas y vencimiento más antiguo) con orden de una lista cerrada de columnas.
-- **Docker Compose** levanta la API entregada, el backend y el panel con `docker compose up --build`.
+- **Backend: NestJS, Prisma y SQLite.** Cobrix necesita su propia base: el enunciado pide que guarde clientes, facturas e historial y que solo hable con el administrador por HTTP. SQLite no necesita servidor, así que la prueba se levanta con un comando. Prisma da migraciones versionadas y Nest por su robustez , escabilidad,ademas de la inyección de dependencias, validación de DTOs, Swagger y `@nestjs/schedule` para la corrida diaria.
+- **Panel: React, Vite y Tailwind.** Por su popularidad y rendimiento asi como todo el entorno y su agradable experiencia de desarrollo.
+- **Docker Compose** Por su facilidad de despliegue en cualquier entorno levantando la API entregada, el backend y el panel con un solo comando `docker compose up -d`.
 
 ## Decisiones
 
@@ -21,9 +20,8 @@
 6. **Topes.** Se aplican después de la idempotencia: lo ya importado no consume tope. Se recorren los contratos en el orden de la API y, dentro de cada uno, las cuotas de la más vieja a la más nueva. Lo frenado se vuelve a intentar en la siguiente corrida.
 7. **Máximo de cuotas recientes y ventana** se aplican por contrato, sobre las cuotas que pasaron las demás reglas.
 8. **Zona horaria y fecha de negocio.** La zona horaria se elige en Configuración → Empresa (por defecto America/Caracas) y la usa todo el sistema: «hoy», la ventana de importación, el libro de pagos hasta hoy, la hora de la corrida automática y cómo el panel muestra fechas y horas. Las fechas se guardan en UTC y se convierten al mostrarlas; al cambiar la zona, el panel se vuelve a montar para que ninguna fecha quede en la zona vieja. `BUSINESS_DATE` (2026-10-13 en la prueba) fija «hoy» para reproducir los resultados. Las fechas de vencimiento y corte se guardan y se muestran como fechas civiles, sin zona horaria, para que no cambien de día.
-9. **Sin inicio de sesión en el panel.** El enunciado no lo pide, y usar las credenciales del administrador para entrar mezclaba dos cosas: quién opera Cobrix y con qué cuenta Cobrix habla con el ISP. Las credenciales del proveedor se cargan solo en Configuración → Proveedor. Antes de guardarlas se verifica que inicien sesión, y quedan cifradas con AES-256-GCM para que las corridas, también la automática, renueven el token. La contraseña nunca se devuelve al navegador; dejarla vacía al editar significa «no cambiar». En producción el panel iría detrás de un SSO o de usuarios propios, sin tocar el resto del backend.
-10. **Concurrencia y fallos.** Un bloqueo en la base impide dos corridas a la vez; si el proceso muere, el bloqueo caduca a los 30 minutos y al reiniciar las corridas «en curso» quedan como fallidas con una explicación. Un error del administrador en un contrato se registra como `provider_error` y la corrida sigue con los demás. Un error global (credenciales, API caída) deja la corrida como fallida y con el mensaje.
-11. **Corrida automática.** El backend revisa cada minuto si toca correr. Para saber si ya corrió hoy consulta la base, no la memoria, así que un reinicio no duplica la corrida. Si el servidor estaba apagado a la hora elegida, se pone al día dentro de las dos horas siguientes, pero activarla a media tarde no dispara una corrida inesperada.
+9.  **Concurrencia y fallos.** Un bloqueo en la base impide dos corridas a la vez; si el proceso muere, el bloqueo caduca a los 30 minutos y al reiniciar las corridas «en curso» quedan como fallidas con una explicación. Un error del administrador en un contrato se registra como `provider_error` y la corrida sigue con los demás. Un error global (credenciales, API caída) deja la corrida como fallida y con el mensaje.
+10. **Corrida automática.** El backend revisa cada minuto si toca correr. Para saber si ya corrió hoy consulta la base, no la memoria, así que un reinicio no duplica la corrida. Si el servidor estaba apagado a la hora elegida, se pone al día dentro de las dos horas siguientes, pero activarla a media tarde no dispara una corrida inesperada.
 
 ## Lo que dejé fuera
 
@@ -52,6 +50,7 @@
 - **Trazabilidad completa.** Cada factura pagada guarda el número de la factura del ISP que la pagó y su fecha. Cada cuota tiene un motivo en lenguaje claro en cada corrida, y la simulación se distingue de la corrida real en todas partes.
 - **Despliegue con un comando** (`docker compose up --build`) y un CI que reproduce los criterios de aceptación de punta a punta contra la API entregada.
 - **Historial de corridas: exportación a PDF**
+- **UI/UX** agradable y responsive facilitando el uso del panel
 
 Aunque el enunciado solicita consultar el historial y abrir el detalle de cada corrida, añadí el botón **«Exportar PDF»** en **Sincronización → Historial de corridas** para que el operador pueda compartir o archivar el reporte sin copiar información manualmente.
 

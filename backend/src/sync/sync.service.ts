@@ -56,7 +56,7 @@ export class SyncService implements OnModuleInit {
 		return this.runWithHistory('payments', simulation, trigger, (items, progress) => this.performPaymentUpdate(simulation, items, progress))
 	}
 
-	// ------------------------------------------------------------------ importación
+	// ---------- importación ----------
 
 	private async performImport(simulation: boolean, items: SyncItem[], progress: RunProgress): Promise<RunOutcome> {
 		const settings = await this.settingsService.get()
